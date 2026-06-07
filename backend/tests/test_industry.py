@@ -34,6 +34,17 @@ def cleanup_industry(industry_code: str):
         db.close()
 
 
+def cleanup_momentum_date(snapshot_date: date):
+    db = SessionLocal()
+    try:
+        db.query(IndustryMomentum).filter(
+            IndustryMomentum.snapshot_date == snapshot_date
+        ).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
 def create_industry(industry_code: str):
     response = client.post(
         "/industries",
@@ -71,6 +82,7 @@ def test_industry_momentum_flow_and_ranking():
 
     for code in (industry_code, strong_code, weak_code):
         cleanup_industry(code)
+    cleanup_momentum_date(snapshot_date)
 
     try:
         industry = create_industry(industry_code)
@@ -152,3 +164,4 @@ def test_industry_momentum_flow_and_ranking():
     finally:
         for code in (industry_code, strong_code, weak_code):
             cleanup_industry(code)
+        cleanup_momentum_date(snapshot_date)
