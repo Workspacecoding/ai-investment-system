@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -92,7 +94,14 @@ export function WatchlistTable({
               key={item.id}
               className={isSelected ? "bg-[hsl(var(--muted))]/70" : undefined}
             >
-              <TableCell className="font-medium">{asset?.symbol ?? item.asset_id}</TableCell>
+              <TableCell className="font-medium">
+                <Link
+                  className="hover:underline"
+                  href={`/dashboard/assets/${item.asset_id}`}
+                >
+                  {asset?.symbol ?? item.asset_id}
+                </Link>
+              </TableCell>
               <TableCell>{asset?.name ?? "-"}</TableCell>
               <TableCell>{asset ? marketLabel(asset.market) : "-"}</TableCell>
               <TableCell>{asset?.industry_id ? asset.industry_id : "待設定"}</TableCell>
@@ -114,6 +123,16 @@ export function WatchlistTable({
                   >
                     查看資料
                   </Button>
+                  <Link
+                    className={buttonVariants({
+                      size: "sm",
+                      variant: "ghost",
+                      className: !asset || isLoading ? "pointer-events-none opacity-50" : "",
+                    })}
+                    href={`/dashboard/assets/${item.asset_id}`}
+                  >
+                    查看詳情
+                  </Link>
                   <Button
                     disabled={isLoading}
                     onClick={() => onStartSync(item.asset_id)}

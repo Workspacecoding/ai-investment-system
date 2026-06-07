@@ -1,0 +1,8 @@
+yfinance
+requests
+pandas
+python-dotenv
+FinMind
+fredapi
+feedparser
+ta

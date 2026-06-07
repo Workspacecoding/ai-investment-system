@@ -11,6 +11,7 @@ from app.routers.indicators import router as indicators_router
 from app.routers.industry import router as industry_router
 from app.routers.market import router as market_router
 from app.routers.news import router as news_router
+from app.routers.notifications import router as notifications_router
 from app.routers.paper_trading import router as paper_trading_router
 from app.routers.performance import router as performance_router
 from app.routers.price_levels import router as price_levels_router
@@ -29,6 +30,7 @@ app.include_router(goals_router)
 app.include_router(goal_strategy_router)
 app.include_router(market_router)
 app.include_router(news_router)
+app.include_router(notifications_router)
 app.include_router(industry_router)
 app.include_router(universe_router)
 app.include_router(indicators_router)
