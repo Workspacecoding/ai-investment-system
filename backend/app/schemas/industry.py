@@ -28,7 +28,7 @@ class IndustryMomentumCreate(BaseModel):
     avg_return_6m: float
     volume_score: float
     trend_score: float
-    sentiment_score: float
+    sentiment_score: float | None = None
 
 
 class IndustryMomentumResponse(BaseModel):
@@ -40,8 +40,9 @@ class IndustryMomentumResponse(BaseModel):
     avg_return_6m: float
     volume_score: float
     trend_score: float
-    sentiment_score: float
+    sentiment_score: float | None = None
     momentum_score: float
+    momentum_version: str
     ranking: int | None = None
     created_at: datetime
 

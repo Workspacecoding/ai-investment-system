@@ -32,8 +32,13 @@ def post_asset_price(
 
 
 @router.get("/prices", response_model=list[AssetPriceResponse])
-def get_asset_prices(asset_id: int, db: Session = Depends(get_db)):
-    return list_prices(db, asset_id)
+def get_asset_prices(
+    asset_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: Session = Depends(get_db),
+):
+    return list_prices(db, asset_id, start_date=start_date, end_date=end_date)
 
 
 @router.post("/indicators/calculate", response_model=list[TechnicalIndicatorResponse])

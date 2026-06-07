@@ -31,6 +31,8 @@ class Asset(Base):
     currency = Column(String(20), nullable=False)
     is_penny_stock = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    data_sync_enabled = Column(Boolean, nullable=False, default=False)
+    last_price_synced_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(
         DateTime,
@@ -49,6 +51,10 @@ class UserWatchlist(Base):
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     asset_id = Column(BigInteger, ForeignKey("assets.id"), nullable=False)
     note = Column(Text)
+    is_sync_enabled = Column(Boolean, nullable=False, default=False)
+    sync_start_date = Column(Date, nullable=True)
+    sync_end_date = Column(Date, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 

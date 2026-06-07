@@ -24,6 +24,8 @@ class AssetResponse(BaseModel):
     currency: str
     is_penny_stock: bool
     is_active: bool
+    data_sync_enabled: bool = False
+    last_price_synced_at: datetime | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -39,9 +41,21 @@ class WatchlistResponse(BaseModel):
     user_id: int
     asset_id: int
     note: str | None = None
+    is_sync_enabled: bool = False
+    sync_start_date: date | None = None
+    sync_end_date: date | None = None
+    last_synced_at: datetime | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class WatchlistSyncResponse(WatchlistResponse):
+    inserted_count: int
+    skipped_duplicate_count: int
+    warning_count: int
+    start_date: date
+    end_date: date
 
 
 class RecommendedAssetCreate(BaseModel):

@@ -53,14 +53,19 @@ def create_or_update_price(
     return price
 
 
-def list_prices(db: Session, asset_id: int) -> list[AssetPrice]:
+def list_prices(
+    db: Session,
+    asset_id: int,
+    start_date=None,
+    end_date=None,
+) -> list[AssetPrice]:
     get_asset_or_404(db, asset_id)
-    return (
-        db.query(AssetPrice)
-        .filter(AssetPrice.asset_id == asset_id)
-        .order_by(AssetPrice.trade_date.asc())
-        .all()
-    )
+    query = db.query(AssetPrice).filter(AssetPrice.asset_id == asset_id)
+    if start_date is not None:
+        query = query.filter(AssetPrice.trade_date >= start_date)
+    if end_date is not None:
+        query = query.filter(AssetPrice.trade_date <= end_date)
+    return query.order_by(AssetPrice.trade_date.asc()).all()
 
 
 def average(values: list[float]) -> float:

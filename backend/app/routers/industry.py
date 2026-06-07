@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.schemas.universe import AssetResponse
 from app.schemas.industry import (
     IndustryCreate,
     IndustryMomentumCreate,
     IndustryMomentumResponse,
     IndustryResponse,
 )
+from app.services.watchlist_sync_service import set_industry_sync
 from app.services.industry_service import (
     create_industry,
     get_latest_momentum,
@@ -57,3 +59,13 @@ def get_industries_momentum_ranking(db: Session = Depends(get_db)):
 @router.post("/momentum/recalculate", response_model=list[IndustryMomentumResponse])
 def post_industries_momentum_recalculate(db: Session = Depends(get_db)):
     return recalculate_ranking(db)
+
+
+@router.post("/{industry_id}/sync/start", response_model=list[AssetResponse])
+def post_industry_sync_start(industry_id: int, db: Session = Depends(get_db)):
+    return set_industry_sync(db, industry_id, True)
+
+
+@router.post("/{industry_id}/sync/stop", response_model=list[AssetResponse])
+def post_industry_sync_stop(industry_id: int, db: Session = Depends(get_db)):
+    return set_industry_sync(db, industry_id, False)

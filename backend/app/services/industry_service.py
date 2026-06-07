@@ -3,10 +3,49 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.industry import Industry, IndustryMomentum
+from app.models.news import IndustrySentimentSnapshot
 from app.schemas.industry import IndustryCreate, IndustryMomentumCreate
 
 
-def calculate_momentum_score(momentum: IndustryMomentumCreate) -> float:
+def normalize_sentiment_score(industry_news_score: float) -> float:
+    return min(max(industry_news_score + 50, 0), 100)
+
+
+def get_latest_normalized_sentiment_score(
+    db: Session,
+    industry_id: int,
+    snapshot_date,
+) -> float | None:
+    snapshot = (
+        db.query(IndustrySentimentSnapshot)
+        .filter(
+            IndustrySentimentSnapshot.industry_id == industry_id,
+            IndustrySentimentSnapshot.snapshot_date <= snapshot_date,
+        )
+        .order_by(
+            IndustrySentimentSnapshot.snapshot_date.desc(),
+            IndustrySentimentSnapshot.id.desc(),
+        )
+        .first()
+    )
+    if not snapshot:
+        return None
+    return normalize_sentiment_score(float(snapshot.industry_news_score))
+
+
+def calculate_momentum_score(
+    momentum: IndustryMomentumCreate,
+    sentiment_score: float | None = None,
+) -> float:
+    if sentiment_score is not None:
+        return (
+            (momentum.avg_return_1m * 0.25)
+            + (momentum.avg_return_3m * 0.25)
+            + (momentum.avg_return_6m * 0.2)
+            + (momentum.volume_score * 0.1)
+            + (momentum.trend_score * 0.1)
+            + (sentiment_score * 0.1)
+        )
     return (
         (momentum.avg_return_1m * 0.3)
         + (momentum.avg_return_3m * 0.3)
@@ -55,7 +94,13 @@ def upsert_industry_momentum(
     momentum_create: IndustryMomentumCreate,
 ) -> IndustryMomentum:
     get_industry_or_404(db, industry_id)
-    momentum_score = calculate_momentum_score(momentum_create)
+    sentiment_score = get_latest_normalized_sentiment_score(
+        db,
+        industry_id,
+        momentum_create.snapshot_date,
+    )
+    momentum_score = calculate_momentum_score(momentum_create, sentiment_score)
+    momentum_version = "v2" if sentiment_score is not None else "v1"
     momentum = (
         db.query(IndustryMomentum)
         .filter(
@@ -65,7 +110,9 @@ def upsert_industry_momentum(
         .first()
     )
 
-    data = momentum_create.model_dump()
+    data = momentum_create.model_dump(exclude={"sentiment_score"})
+    data["sentiment_score"] = sentiment_score
+    data["momentum_version"] = momentum_version
     if momentum:
         for field, value in data.items():
             setattr(momentum, field, value)

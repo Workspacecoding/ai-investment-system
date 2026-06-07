@@ -45,8 +45,9 @@ class IndustryMomentum(Base):
     avg_return_6m = Column(Float, nullable=False)
     volume_score = Column(Float, nullable=False)
     trend_score = Column(Float, nullable=False)
-    sentiment_score = Column(Float, nullable=False)
+    sentiment_score = Column(Float, nullable=True)
     momentum_score = Column(Float, nullable=False)
+    momentum_version = Column(String(50), nullable=False, server_default="v2")
     ranking = Column(Integer)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(

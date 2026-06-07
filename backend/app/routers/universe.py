@@ -13,6 +13,7 @@ from app.schemas.universe import (
     RecommendedAssetResponse,
     WatchlistCreate,
     WatchlistResponse,
+    WatchlistSyncResponse,
 )
 from app.services.universe_service import (
     add_to_watchlist,
@@ -23,6 +24,10 @@ from app.services.universe_service import (
     list_recommended_assets,
     list_user_watchlist,
     remove_from_watchlist,
+)
+from app.services.watchlist_sync_service import (
+    disable_watchlist_sync,
+    enable_watchlist_sync,
 )
 
 
@@ -86,6 +91,24 @@ def delete_watchlist(
     db: Session = Depends(get_db),
 ):
     remove_from_watchlist(db, current_user.id, asset_id)
+
+
+@router.post("/watchlist/{asset_id}/sync/start", response_model=WatchlistSyncResponse)
+def post_watchlist_sync_start(
+    asset_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return enable_watchlist_sync(db, current_user.id, asset_id)
+
+
+@router.post("/watchlist/{asset_id}/sync/stop", response_model=WatchlistResponse)
+def post_watchlist_sync_stop(
+    asset_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return disable_watchlist_sync(db, current_user.id, asset_id)
 
 
 @router.post(

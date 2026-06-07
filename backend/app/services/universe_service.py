@@ -100,7 +100,16 @@ def remove_from_watchlist(db: Session, user_id: int, asset_id: int) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Watchlist asset not found",
         )
+    watchlist.is_sync_enabled = False
     db.delete(watchlist)
+    enabled_count = (
+        db.query(UserWatchlist)
+        .filter(UserWatchlist.asset_id == asset_id, UserWatchlist.is_sync_enabled.is_(True))
+        .count()
+    )
+    if enabled_count == 0:
+        asset = get_asset_or_404(db, asset_id)
+        asset.data_sync_enabled = False
     db.commit()
 
 
