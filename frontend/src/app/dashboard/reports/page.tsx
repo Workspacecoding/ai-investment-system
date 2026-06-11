@@ -14,11 +14,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReportStore } from "@/store/reportStore";
 
 const tabs = [
-  { value: "monthly", label: "Monthly" },
-  { value: "strategy", label: "Strategy" },
-  { value: "backtests", label: "Backtests" },
-  { value: "factors", label: "Factors" },
-  { value: "trades", label: "Trade Logs" },
+  { value: "monthly", label: "月報" },
+  { value: "strategy", label: "策略績效" },
+  { value: "backtests", label: "回測結果" },
+  { value: "factors", label: "因子排名" },
+  { value: "trades", label: "交易紀錄" },
 ];
 
 export default function ReportsPage() {
@@ -54,9 +54,9 @@ export default function ReportsPage() {
     <main className="min-h-screen bg-[hsl(var(--background))] px-4 py-8 text-[hsl(var(--foreground))]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Reports Center</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">報表中心</h1>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-            查看月結績效、策略績效、回測與因子排名。
+            查看月結績效、策略績效、回測分析與因子排名。
           </p>
         </div>
 

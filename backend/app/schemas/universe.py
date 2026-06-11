@@ -9,7 +9,14 @@ class AssetCreate(BaseModel):
     market: str
     asset_type: str
     industry_id: int | None = None
+    api_config_id: int | None = None
+    api_code: str | None = None
+    description: str | None = None
     currency: str
+    update_frequency: str | None = None
+    in_swing_pool: bool = False
+    in_newsletter: bool = False
+    needs_backtest: bool = False
     is_penny_stock: bool = False
     is_active: bool = True
 
@@ -21,7 +28,14 @@ class AssetResponse(BaseModel):
     market: str
     asset_type: str
     industry_id: int | None = None
+    api_config_id: int | None = None
+    api_code: str | None = None
+    description: str | None = None
     currency: str
+    update_frequency: str | None = None
+    in_swing_pool: bool = False
+    in_newsletter: bool = False
+    needs_backtest: bool = False
     is_penny_stock: bool
     is_active: bool
     data_sync_enabled: bool = False

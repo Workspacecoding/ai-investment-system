@@ -6,7 +6,7 @@ import { AddAssetDialog } from "@/components/watchlist/AddAssetDialog";
 import { DateRangePicker } from "@/components/watchlist/DateRangePicker";
 import { PriceHistoryPanel } from "@/components/watchlist/PriceHistoryPanel";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
-import { WatchlistToolbar } from "@/components/watchlist/WatchlistToolbar";
+import { WatchlistToolbar, type MarketOption, type IndustryOption } from "@/components/watchlist/WatchlistToolbar";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,10 +16,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { Asset } from "@/lib/api/watchlist";
+import { listMarketsPublic, listIndustriesPublic } from "@/lib/api/admin";
 import { useWatchlistStore } from "@/store/watchlistStore";
 
 export default function DashboardWatchlistPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [marketOptions, setMarketOptions] = useState<MarketOption[]>([]);
+  const [industryOptions, setIndustryOptions] = useState<IndustryOption[]>([]);
+
   const {
     assets,
     watchlist,
@@ -45,9 +49,42 @@ export default function DashboardWatchlistPage() {
     clearError,
   } = useWatchlistStore();
 
+  // Load watchlist data
   useEffect(() => {
     fetchWatchlist();
   }, [fetchWatchlist, marketFilter]);
+
+  // Load dynamic market and industry options from admin API
+  useEffect(() => {
+    listMarketsPublic()
+      .then((markets) => {
+        const opts: MarketOption[] = [
+          { label: "全部", value: "ALL" },
+          ...markets.filter(m => m.is_active).map(m => ({ label: `${m.code} — ${m.name}`, value: m.code })),
+        ];
+        setMarketOptions(opts);
+      })
+      .catch(() => {
+        // fallback to defaults if API fails
+        setMarketOptions([
+          { label: "全部", value: "ALL" },
+          { label: "台股 TW", value: "TW" },
+          { label: "美股 US", value: "US" },
+        ]);
+      });
+
+    listIndustriesPublic()
+      .then((industries) => {
+        const opts: IndustryOption[] = [
+          { label: "全部", value: "ALL" },
+          ...industries.map(i => ({ label: `${i.industry_name}`, value: String(i.id) })),
+        ];
+        setIndustryOptions(opts);
+      })
+      .catch(() => {
+        setIndustryOptions([{ label: "全部", value: "ALL" }]);
+      });
+  }, []);
 
   const assetsById = useMemo(
     () => new Map(assets.map((asset) => [asset.id, asset])),
@@ -59,10 +96,13 @@ export default function DashboardWatchlistPage() {
       const asset = assetsById.get(item.asset_id);
       if (!asset) return marketFilter === "ALL";
       if (marketFilter !== "ALL" && asset.market !== marketFilter) return false;
-
+      if (industryFilter !== "ALL") {
+        const indId = String(asset.industry_id ?? "");
+        if (indId !== industryFilter) return false;
+      }
       return true;
     });
-  }, [assetsById, marketFilter, watchlist]);
+  }, [assetsById, marketFilter, industryFilter, watchlist]);
 
   const priceCountByAssetId = useMemo(() => {
     const counts = new Map<number, number>();
@@ -81,7 +121,7 @@ export default function DashboardWatchlistPage() {
     <main className="min-h-screen bg-[hsl(var(--background))] px-4 py-8 text-[hsl(var(--foreground))]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">My Watchlist</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">自選股管理</h1>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
             管理自選股與歷史資料同步
           </p>
@@ -92,6 +132,8 @@ export default function DashboardWatchlistPage() {
             <WatchlistToolbar
               marketFilter={marketFilter}
               industryFilter={industryFilter}
+              marketOptions={marketOptions}
+              industryOptions={industryOptions}
               onMarketChange={setMarketFilter}
               onIndustryChange={setIndustryFilter}
               onAddAsset={() => setIsAddDialogOpen(true)}
@@ -154,7 +196,7 @@ export default function DashboardWatchlistPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Watchlist</CardTitle>
+            <CardTitle className="text-base">自選股</CardTitle>
             <CardDescription>管理同步狀態、查看歷史資料與移除自選股。</CardDescription>
           </CardHeader>
           <CardContent>
@@ -183,6 +225,8 @@ export default function DashboardWatchlistPage() {
       <AddAssetDialog
         open={isAddDialogOpen}
         isLoading={isLoading}
+        marketOptions={marketOptions}
+        industryOptions={industryOptions}
         onOpenChange={setIsAddDialogOpen}
         onSubmit={addAsset}
       />

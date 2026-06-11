@@ -1,8 +1,22 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.database import engine
+from app.database import Base, engine
+import app.models.api_config  # noqa: F401
+import app.models.asset_indicator  # noqa: F401
+import app.models.asset_role  # noqa: F401
+import app.models.asset_role_link  # noqa: F401
+import app.models.asset_type_config  # noqa: F401
+import app.models.factor_corr_report  # noqa: F401
+import app.models.industry_indicator_link  # noqa: F401
+import app.models.market_config  # noqa: F401
+import app.models.market_config_indicator_link  # noqa: F401
+import app.models.market_indicator_config  # noqa: F401
+import app.models.role_config  # noqa: F401
+import app.models.score_formula  # noqa: F401
 from app.routers.auth import router as auth_router
+from app.routers.daily_reports import router as daily_reports_router
 from app.routers.backtesting import router as backtesting_router
 from app.routers.fundamentals import router as fundamentals_router
 from app.routers.goal_strategy import router as goal_strategy_router
@@ -21,9 +35,73 @@ from app.routers.scores import router as scores_router
 from app.routers.settings import router as settings_router
 from app.routers.swing_trade import router as swing_trade_router
 from app.routers.trade_plans import router as trade_plans_router
+from app.routers.admin import router as admin_router
+from app.routers.swing_recommend import router as swing_recommend_router
 from app.routers.universe import router as universe_router
 
 app = FastAPI()
+
+
+def _run_column_migrations() -> None:
+    """Add new columns to existing tables (idempotent — ignores duplicate column errors)."""
+    migration_sqls = [
+        "ALTER TABLE market_configs ADD COLUMN is_tracked TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE market_configs ADD COLUMN display_order INT NOT NULL DEFAULT 0",
+        "ALTER TABLE market_indicator_configs ADD COLUMN api_config_id BIGINT NULL",
+        "ALTER TABLE market_indicator_configs ADD COLUMN api_source VARCHAR(100) NULL",
+        "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'",
+        "ALTER TABLE assets MODIFY COLUMN asset_type VARCHAR(50) NOT NULL",
+        "ALTER TABLE assets ADD COLUMN description TEXT NULL",
+        "ALTER TABLE assets ADD COLUMN api_config_id BIGINT NULL",
+        # 架構調整：產業追蹤狀態 + 標的管理新欄位
+        "ALTER TABLE industries ADD COLUMN tracking_status VARCHAR(20) NOT NULL DEFAULT 'disabled'",
+        "ALTER TABLE assets ADD COLUMN api_code VARCHAR(100) NULL",
+        "ALTER TABLE assets ADD COLUMN update_frequency VARCHAR(20) NULL",
+        "ALTER TABLE assets ADD COLUMN in_swing_pool TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE assets ADD COLUMN in_newsletter TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE assets ADD COLUMN needs_backtest TINYINT(1) NOT NULL DEFAULT 0",
+    ]
+    with engine.connect() as conn:
+        for sql in migration_sqls:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                pass
+
+
+@app.on_event("startup")
+def _create_tables():
+    try:
+        Base.metadata.create_all(bind=engine)
+        _run_column_migrations()
+        # Seed default market indicators if not present
+        from app.database import SessionLocal
+        from app.services.admin_service import (
+            seed_default_asset_roles,
+            seed_default_asset_types,
+            seed_default_indicators,
+            seed_default_roles,
+            seed_default_score_formulas,
+        )
+        with SessionLocal() as db:
+            seed_default_indicators(db)
+            seed_default_score_formulas(db)
+            seed_default_asset_types(db)
+            seed_default_roles(db)
+            seed_default_asset_roles(db)
+    except Exception:
+        pass  # DB may be sleeping; tables will exist from prior run
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth_router)
 app.include_router(settings_router)
 app.include_router(goals_router)
@@ -44,6 +122,9 @@ app.include_router(performance_router)
 app.include_router(profit_allocation_router)
 app.include_router(portfolio_optimization_router)
 app.include_router(backtesting_router)
+app.include_router(daily_reports_router)
+app.include_router(admin_router)
+app.include_router(swing_recommend_router)
 
 
 @app.get("/health")

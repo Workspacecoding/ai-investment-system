@@ -38,3 +38,15 @@ export async function getCurrentUser() {
   const response = await apiClient.get<AuthUser>("/me");
   return response.data;
 }
+
+export async function updateProfile(payload: { name?: string; email?: string }) {
+  const response = await apiClient.put<AuthUser>("/me", payload);
+  return response.data;
+}
+
+export async function changePassword(payload: {
+  current_password: string;
+  new_password: string;
+}) {
+  await apiClient.put("/password", payload);
+}

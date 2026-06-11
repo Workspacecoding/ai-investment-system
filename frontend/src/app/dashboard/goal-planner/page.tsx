@@ -52,7 +52,7 @@ export default function GoalPlannerPage() {
     <main className="min-h-screen bg-[hsl(var(--background))] px-4 py-8 text-[hsl(var(--foreground))]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Goal Planner Center</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">目標規劃中心</h1>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
             設定投資目標，產生策略配置與推薦標的。
           </p>

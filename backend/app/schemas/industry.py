@@ -16,6 +16,7 @@ class IndustryResponse(BaseModel):
     industry_name: str
     market: str
     description: str | None = None
+    tracking_status: str = "disabled"  # "core" | "observation" | "disabled"
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

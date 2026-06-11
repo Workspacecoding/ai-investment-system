@@ -70,7 +70,7 @@ export default function SwingCenterPage() {
     <main className="min-h-screen bg-[hsl(var(--background))] px-4 py-8 text-[hsl(var(--foreground))]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Swing Center</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">波段交易中心</h1>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
             查看波段交易買點、加碼區、停損與目標價。
           </p>

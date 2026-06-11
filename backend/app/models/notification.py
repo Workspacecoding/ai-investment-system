@@ -49,6 +49,7 @@ class NotificationLog(Base):
             "market_change",
             "weekly_report",
             "monthly_report",
+            "daily_report",
         ),
         nullable=False,
     )

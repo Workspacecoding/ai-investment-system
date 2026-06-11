@@ -4,7 +4,6 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
-    Enum,
     Float,
     ForeignKey,
     String,
@@ -26,9 +25,16 @@ class Asset(Base):
     symbol = Column(String(50), nullable=False)
     name = Column(String(255), nullable=False)
     market = Column(String(50), nullable=False)
-    asset_type = Column(Enum("stock", "etf", "crypto"), nullable=False)
+    asset_type = Column(String(50), nullable=False, default="stock")
     industry_id = Column(BigInteger, ForeignKey("industries.id"), nullable=True)
+    api_config_id = Column(BigInteger, ForeignKey("api_configs.id"), nullable=True)
+    description = Column(Text, nullable=True)
     currency = Column(String(20), nullable=False)
+    api_code = Column(String(100), nullable=True)          # API-specific code (may differ from symbol)
+    update_frequency = Column(String(20), nullable=True)   # realtime / daily / weekly / monthly
+    in_swing_pool = Column(Boolean, nullable=False, default=False)   # 加入波段推薦池
+    in_newsletter = Column(Boolean, nullable=False, default=False)   # 加入電子報追蹤
+    needs_backtest = Column(Boolean, nullable=False, default=False)  # 是否需要回測
     is_penny_stock = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     data_sync_enabled = Column(Boolean, nullable=False, default=False)

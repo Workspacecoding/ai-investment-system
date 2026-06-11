@@ -20,10 +20,10 @@ import {
 } from "@/lib/api/watchlist";
 
 type AddAssetInput = {
-  market: "TW" | "US";
+  market: string;
   symbol: string;
   name: string;
-  industry: IndustryFilter;
+  industry_id: number | null;
 };
 
 type WatchlistState = {
@@ -130,7 +130,7 @@ export const useWatchlistStore = create<WatchlistState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       let assets = await getAssets({
-        market: input.market,
+        market: input.market === "ALL" ? undefined : input.market,
         is_active: true,
       });
       let asset = assets.find(
@@ -143,7 +143,7 @@ export const useWatchlistStore = create<WatchlistState>((set, get) => ({
           market: input.market,
           symbol,
           name: input.name,
-          industry_id: null,
+          industry_id: input.industry_id ?? null,
           currency: input.market === "TW" ? "TWD" : "USD",
         });
       }

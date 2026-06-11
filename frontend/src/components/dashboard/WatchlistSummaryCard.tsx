@@ -34,17 +34,17 @@ export function WatchlistSummaryCard({ items, isLoading }: WatchlistSummaryCardP
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Watchlist Summary</CardTitle>
-        <CardDescription>前 10 檔自選股狀態</CardDescription>
+        <CardTitle className="text-base">自選股摘要</CardTitle>
+        <CardDescription>自選股最新狀態</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Symbol</TableHead>
-              <TableHead>Current Price</TableHead>
-              <TableHead>Score</TableHead>
-              <TableHead>Action</TableHead>
+              <TableHead>代碼</TableHead>
+              <TableHead>現價</TableHead>
+              <TableHead>分數</TableHead>
+              <TableHead>建議</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

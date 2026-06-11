@@ -71,6 +71,52 @@ type GoalStrategy = {
   probability_score: number | string;
 };
 
+export type MarketIndicator = {
+  id: number;
+  field_key: string;
+  display_name: string;
+  unit: string;
+  value: number | null;
+  formula: string | null;
+  description: string | null;
+};
+
+export type IndustryMomentumRow = {
+  industry_id: number;
+  industry_name: string;
+  industry_code: string;
+  momentum_score: number;
+  ranking: number | null;
+};
+
+export type TrackedMarketIndicator = {
+  field_key: string;
+  display_name: string;
+  value: number | null;
+  unit: string;
+};
+
+export type TrackedMarket = {
+  code: string;
+  name: string;
+  currency: string;
+  market_score: number;
+  market_regime: string;
+  recommendation: string;
+  indicators: TrackedMarketIndicator[];
+};
+
+export type MarketDashboard = {
+  market_score: number;
+  market_regime: string;
+  recommendation: string;
+  snapshot_date: string | null;
+  indicators: MarketIndicator[];
+  top_industries: IndustryMomentumRow[];
+  tracked_industries: IndustryMomentumRow[];
+  tracked_markets: TrackedMarket[];
+};
+
 export type MarketOverview = {
   market_state: string;
   market_score: number;
@@ -119,6 +165,7 @@ export type DashboardAction = {
 
 export type DashboardSummary = {
   marketOverview: MarketOverview;
+  marketDashboard: MarketDashboard | null;
   topOpportunities: DashboardOpportunity[];
   watchlistSummary: DashboardWatchlistItem[];
   portfolioSummary: DashboardPortfolioSummary;
@@ -172,6 +219,13 @@ function mapTradeAction(action: string): DashboardAction["action"] {
   if (action === "watch") return "WATCH";
   if (action === "sell" || action === "avoid") return "SELL";
   return "REDUCE";
+}
+
+export async function getMarketDashboard(): Promise<MarketDashboard | null> {
+  return safe<MarketDashboard | null>(
+    apiClient.get<MarketDashboard>("/market/dashboard").then((r) => r.data),
+    null,
+  );
 }
 
 export async function getMarketOverview(): Promise<MarketOverview> {
@@ -338,6 +392,7 @@ async function getActionCenter(): Promise<DashboardAction[]> {
 export async function getDashboardSummary(): Promise<DashboardSummary> {
   const [
     marketOverview,
+    marketDashboard,
     topOpportunities,
     watchlistSummary,
     portfolioSummary,
@@ -345,6 +400,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
     actions,
   ] = await Promise.all([
     getMarketOverview(),
+    getMarketDashboard(),
     getTopOpportunities(),
     getWatchlistSummary(),
     getPortfolioSummary(),
@@ -354,6 +410,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 
   return {
     marketOverview,
+    marketDashboard,
     topOpportunities,
     watchlistSummary,
     portfolioSummary,

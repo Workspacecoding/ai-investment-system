@@ -23,6 +23,8 @@ class Industry(Base):
     industry_name = Column(String(255), nullable=False)
     market = Column(String(50), nullable=False)
     description = Column(Text)
+    # tracking_status: "core" | "observation" | "disabled"
+    tracking_status = Column(String(20), nullable=False, server_default="disabled")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(
         DateTime,

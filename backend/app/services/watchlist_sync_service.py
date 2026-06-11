@@ -100,6 +100,7 @@ def sync_asset_history(
     inserted_count = 0
     skipped_duplicate_count = 0
     warning_count = 0
+    new_price_rows = []
 
     for price_data in price_rows:
         existing_price = existing_prices.get(price_data["trade_date"])
@@ -115,8 +116,11 @@ def sync_asset_history(
                 price_data["trade_date"],
             )
         else:
-            db.add(AssetPrice(asset_id=asset_id, **price_data))
+            new_price_rows.append({"asset_id": asset_id, **price_data})
             inserted_count += 1
+
+    if new_price_rows:
+        db.bulk_insert_mappings(AssetPrice, new_price_rows)
 
     now = datetime.utcnow()
     asset.data_sync_enabled = True

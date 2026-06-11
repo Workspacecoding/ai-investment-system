@@ -32,18 +32,18 @@ export function TopOpportunitiesCard({ opportunities, isLoading }: TopOpportunit
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Today's Opportunities</CardTitle>
+        <CardTitle className="text-base">今日波段機會</CardTitle>
         <CardDescription>波段交易排名前 5 名</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Symbol</TableHead>
-              <TableHead>Score</TableHead>
-              <TableHead>Swing Score</TableHead>
-              <TableHead>Entry Zone</TableHead>
-              <TableHead>Confidence</TableHead>
+              <TableHead>代碼</TableHead>
+              <TableHead>分數</TableHead>
+              <TableHead>波段分數</TableHead>
+              <TableHead>進場區間</TableHead>
+              <TableHead>信心度</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

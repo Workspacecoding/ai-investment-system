@@ -5,22 +5,18 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import type { IndustryFilter, MarketFilter } from "@/lib/api/watchlist";
 
+export type MarketOption = { label: string; value: string };
+export type IndustryOption = { label: string; value: string };
+
 type WatchlistToolbarProps = {
   marketFilter: MarketFilter;
   industryFilter: IndustryFilter;
+  marketOptions?: MarketOption[];
+  industryOptions?: IndustryOption[];
   onMarketChange: (value: MarketFilter) => void;
   onIndustryChange: (value: IndustryFilter) => void;
   onAddAsset: () => void;
 };
-
-export const industryOptions: Array<{ label: string; value: IndustryFilter }> = [
-  { label: "全部", value: "ALL" },
-  { label: "AI", value: "AI" },
-  { label: "電子", value: "ELECTRONICS" },
-  { label: "半導體", value: "SEMICONDUCTOR" },
-  { label: "雲端", value: "CLOUD" },
-  { label: "資料中心", value: "DATACENTER" },
-];
 
 export function marketLabel(market: string) {
   if (market === "TW") return "台股";
@@ -28,13 +24,28 @@ export function marketLabel(market: string) {
   return market;
 }
 
+const DEFAULT_MARKET_OPTIONS: MarketOption[] = [
+  { label: "全部", value: "ALL" },
+  { label: "台股 TW", value: "TW" },
+  { label: "美股 US", value: "US" },
+];
+
+const DEFAULT_INDUSTRY_OPTIONS: IndustryOption[] = [
+  { label: "全部", value: "ALL" },
+];
+
 export function WatchlistToolbar({
   marketFilter,
   industryFilter,
+  marketOptions,
+  industryOptions,
   onMarketChange,
   onIndustryChange,
   onAddAsset,
 }: WatchlistToolbarProps) {
+  const mOpts = marketOptions && marketOptions.length > 0 ? marketOptions : DEFAULT_MARKET_OPTIONS;
+  const iOpts = industryOptions && industryOptions.length > 0 ? industryOptions : DEFAULT_INDUSTRY_OPTIONS;
+
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div className="grid gap-3 sm:grid-cols-2 md:w-[440px]">
@@ -43,11 +54,13 @@ export function WatchlistToolbar({
           <Select
             id="market-filter"
             value={marketFilter}
-            onChange={(event) => onMarketChange(event.target.value as MarketFilter)}
+            onChange={(event) => onMarketChange(event.target.value)}
           >
-            <option value="ALL">全部</option>
-            <option value="TW">台股 TW</option>
-            <option value="US">美股 US</option>
+            {mOpts.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </Select>
         </div>
         <div className="space-y-2">
@@ -55,11 +68,11 @@ export function WatchlistToolbar({
           <Select
             id="industry-filter"
             value={industryFilter}
-            onChange={(event) => onIndustryChange(event.target.value as IndustryFilter)}
+            onChange={(event) => onIndustryChange(event.target.value)}
           >
-            {industryOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            {iOpts.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </Select>

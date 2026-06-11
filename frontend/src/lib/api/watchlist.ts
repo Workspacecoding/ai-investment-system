@@ -1,13 +1,7 @@
 import { apiClient } from "@/lib/api/client";
 
-export type MarketFilter = "ALL" | "TW" | "US";
-export type IndustryFilter =
-  | "ALL"
-  | "AI"
-  | "ELECTRONICS"
-  | "SEMICONDUCTOR"
-  | "CLOUD"
-  | "DATACENTER";
+export type MarketFilter = string;   // "ALL" or any market code from admin
+export type IndustryFilter = string; // "ALL" or any industry_code from admin
 
 export type Asset = {
   id: number;
@@ -27,8 +21,8 @@ export type Asset = {
 export type AssetCreatePayload = {
   symbol: string;
   name: string;
-  market: "TW" | "US";
-  asset_type?: "stock" | "etf";
+  market: string;
+  asset_type?: string;
   industry_id?: number | null;
   currency?: string;
   is_penny_stock?: boolean;
@@ -89,6 +83,7 @@ export async function createAsset(payload: AssetCreatePayload) {
     ...payload,
     symbol: payload.symbol.trim().toUpperCase(),
     name: payload.name.trim() || payload.symbol.trim().toUpperCase(),
+    // map industry_code → industry_id (handled in store)
   });
   return response.data;
 }

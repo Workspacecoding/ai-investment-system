@@ -44,9 +44,9 @@ export default function NotificationsPage() {
     <main className="min-h-screen bg-[hsl(var(--background))] px-4 py-8 text-[hsl(var(--foreground))]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Notification Center</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">通知中心</h1>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
-            管理投資提醒、Email 通知與週報 / 月報。
+            管理投資提醒、電子郵件通知、週報與月報。
           </p>
         </div>
 

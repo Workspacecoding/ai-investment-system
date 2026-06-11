@@ -31,8 +31,8 @@ export function ActionCenterCard({ actions, isLoading }: ActionCenterCardProps) 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Action Center</CardTitle>
-        <CardDescription>Trade Plan 與 Swing Setup 推薦操作</CardDescription>
+        <CardTitle className="text-base">操作建議</CardTitle>
+        <CardDescription>交易計畫與波段 Setup 推薦</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {actions.length === 0 ? (

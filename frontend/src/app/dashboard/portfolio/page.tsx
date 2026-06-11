@@ -43,7 +43,7 @@ export default function PortfolioCenterPage() {
     <main className="min-h-screen bg-[hsl(var(--background))] px-4 py-8 text-[hsl(var(--foreground))]">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Portfolio Center</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">投資組合中心</h1>
           <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
             查看持股、損益、配置、產業曝險與最佳化建議。
           </p>

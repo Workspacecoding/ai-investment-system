@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import Asset, UserWatchlist
 from app.models.asset_score import AssetScore
+from app.models.daily_report import DailyReport, DailyReportItem
 from app.models.goal_strategy import GoalStrategy
 from app.models.monthly_report import PerformanceReport
 from app.models.paper_trading import PaperPortfolio
@@ -165,4 +166,105 @@ def generate_monthly_report_notification(db: Session, user_id: int):
         notification_type="monthly_report",
         subject="本月投資月報",
         body=body,
+    )
+
+
+def generate_daily_report_email(db: Session, user_id: int):
+    setting = get_or_create_notification_settings(db, user_id)
+    if not setting.email_enabled:
+        return None
+
+    report = (
+        db.query(DailyReport)
+        .filter(DailyReport.user_id == user_id)
+        .order_by(DailyReport.report_date.desc(), DailyReport.id.desc())
+        .first()
+    )
+
+    items = (
+        db.query(DailyReportItem)
+        .filter(DailyReportItem.daily_report_id == report.id)
+        .all()
+        if report
+        else []
+    )
+
+    buy_items = [item for item in items if item.action == "BUY"]
+    buy_symbols = []
+    for item in buy_items:
+        asset = db.query(Asset).filter(Asset.id == item.asset_id).first()
+        if asset:
+            buy_symbols.append(f"- {asset.symbol} score={number(item.score):.1f}")
+
+    portfolio = (
+        db.query(PaperPortfolio)
+        .filter(PaperPortfolio.user_id == user_id)
+        .order_by(PaperPortfolio.created_at.desc(), PaperPortfolio.id.desc())
+        .first()
+    )
+    portfolio_line = (
+        f"Portfolio total_equity={number(portfolio.total_equity):.2f}, "
+        f"unrealized_pnl={number(portfolio.unrealized_pnl):.2f}"
+        if portfolio
+        else "Portfolio 尚無資料"
+    )
+
+    goal = (
+        db.query(GoalStrategy)
+        .filter(GoalStrategy.user_id == user_id)
+        .order_by(GoalStrategy.created_at.desc(), GoalStrategy.id.desc())
+        .first()
+    )
+    goal_progress = (
+        number(goal.current_capital) / number(goal.target_capital) * 100
+        if goal and number(goal.target_capital) > 0
+        else 0
+    )
+
+    watchlist_asset_ids = [
+        row[0]
+        for row in db.query(UserWatchlist.asset_id)
+        .filter(UserWatchlist.user_id == user_id)
+        .all()
+    ]
+    watchlist_lines = []
+    for asset_id in watchlist_asset_ids[:5]:
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        score_obj = (
+            db.query(AssetScore)
+            .filter(AssetScore.asset_id == asset_id)
+            .order_by(AssetScore.trade_date.desc())
+            .first()
+        )
+        if asset:
+            score_val = number(score_obj.final_score) if score_obj else 0
+            watchlist_lines.append(f"- {asset.symbol} final_score={score_val:.1f}")
+
+    body_lines = ["今日投資日報", ""]
+    if report:
+        body_lines += [
+            f"市場狀態：{report.market_state or '-'}",
+            f"市場分數：{number(report.market_score):.1f}" if report.market_score else "市場分數：-",
+            f"最佳產業：{report.top_industry or '-'}",
+            "",
+        ]
+    body_lines += [
+        "今日推薦（BUY）：",
+        *(buy_symbols or ["- 尚無資料"]),
+        "",
+        "Watchlist 狀態（前 5 名）：",
+        *(watchlist_lines or ["- 尚無資料"]),
+        "",
+        "Portfolio 狀態：",
+        portfolio_line,
+        "",
+        f"Goal Progress：{goal_progress:.2f}%",
+    ]
+
+    return create_notification_log(
+        db,
+        user_id=user_id,
+        notification_type="daily_report",
+        subject="今日投資日報",
+        body="\n".join(body_lines),
     )

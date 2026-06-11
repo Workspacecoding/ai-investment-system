@@ -18,6 +18,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     name: str | None = None
+    role: str = "user"
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -27,3 +28,13 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str

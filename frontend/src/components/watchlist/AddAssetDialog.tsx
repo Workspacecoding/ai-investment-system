@@ -14,41 +14,54 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import type { IndustryFilter } from "@/lib/api/watchlist";
+import type { MarketOption, IndustryOption } from "./WatchlistToolbar";
 
-import { industryOptions } from "./WatchlistToolbar";
+type AddAssetSubmitInput = {
+  market: string;
+  symbol: string;
+  name: string;
+  industry_id: number | null;
+};
 
 type AddAssetDialogProps = {
   open: boolean;
   isLoading: boolean;
+  marketOptions?: MarketOption[];
+  industryOptions?: IndustryOption[];
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: {
-    market: "TW" | "US";
-    symbol: string;
-    name: string;
-    industry: IndustryFilter;
-  }) => Promise<void>;
+  onSubmit: (input: AddAssetSubmitInput) => Promise<void>;
 };
 
 export function AddAssetDialog({
   open,
   isLoading,
+  marketOptions,
+  industryOptions,
   onOpenChange,
   onSubmit,
 }: AddAssetDialogProps) {
-  const [market, setMarket] = useState<"TW" | "US">("US");
+  const defaultMarket = marketOptions?.find(o => o.value !== "ALL")?.value ?? "TW";
+  const [market, setMarket] = useState(defaultMarket);
   const [symbol, setSymbol] = useState("");
   const [name, setName] = useState("");
-  const [industry, setIndustry] = useState<IndustryFilter>("ALL");
+  const [industryId, setIndustryId] = useState<string>("");
+
+  const mOpts = (marketOptions ?? []).filter(o => o.value !== "ALL");
+  const iOpts = industryOptions ?? [];
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!symbol.trim()) return;
 
-    await onSubmit({ market, symbol, name, industry });
+    await onSubmit({
+      market,
+      symbol,
+      name,
+      industry_id: industryId ? Number(industryId) : null,
+    });
     setSymbol("");
     setName("");
-    setIndustry("ALL");
+    setIndustryId("");
     onOpenChange(false);
   }
 
@@ -65,10 +78,16 @@ export function AddAssetDialog({
             <Select
               id="asset-market"
               value={market}
-              onChange={(event) => setMarket(event.target.value as "TW" | "US")}
+              onChange={(event) => setMarket(event.target.value)}
             >
-              <option value="TW">台股 TW</option>
-              <option value="US">美股 US</option>
+              {mOpts.length > 0 ? mOpts.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              )) : (
+                <>
+                  <option value="TW">台股 TW</option>
+                  <option value="US">美股 US</option>
+                </>
+              )}
             </Select>
           </div>
           <div className="space-y-2">
@@ -93,12 +112,13 @@ export function AddAssetDialog({
             <Label htmlFor="asset-industry">產業</Label>
             <Select
               id="asset-industry"
-              value={industry}
-              onChange={(event) => setIndustry(event.target.value as IndustryFilter)}
+              value={industryId}
+              onChange={(event) => setIndustryId(event.target.value)}
             >
-              {industryOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+              <option value="">— 不指定 —</option>
+              {iOpts.filter(o => o.value !== "ALL").map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </Select>
