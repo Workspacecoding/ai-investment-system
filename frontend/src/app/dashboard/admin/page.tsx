@@ -75,6 +75,16 @@ import {
   updateRoleConfig,
   updateScoreFormula,
   updateUserAdmin,
+  type IndicatorDailyValue,
+  type MarketScoreResult,
+  type MarketScoreSnapshot,
+  type MarketScoreValidation,
+  calculateAndSaveMarketScore,
+  getIndicatorDailyValues,
+  getMarketScoreValidation,
+  listMarketScoreSnapshots,
+  saveIndicatorDailyValues,
+  updateSnapshotReturns,
 } from "@/lib/api/admin";
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
@@ -1047,74 +1057,171 @@ function corrColor(v: number | null) {
   return "text-red-500 font-semibold";
 }
 
-// ── Formula section: one market's scoring formula ─────────────────────────────
+// ── Analysis sub-sections ────────────────────────────────────────────────────
 
-function MarketFormulaSection({
-  marketName,
-  allIndicators,
-  latestCorrMap,
+// Formula categories
+const FORMULA_CATEGORIES = [
+  { type: "market_score", label: "市場公式", description: "計算市場整體走勢分數（MarketScore）" },
+  { type: "industry_score", label: "産業公式", description: "計算産業動能分數（IndustryScore）" },
+  { type: "stock_score", label: "標的公式", description: "計算個股 / ETF 評分（StockScore）" },
+] as const;
+type FormulaCatType = (typeof FORMULA_CATEGORIES)[number]["type"];
+
+// ── Formula item editor (drill-down) ─────────────────────────────────────────
+function FormulaItemEditor({
+  formulaType, catLabel, allIndicators, latestCorrMap, markets, initialMarketCode, onBack,
 }: {
-  marketName: string;
+  formulaType: FormulaCatType; catLabel: string;
   allIndicators: MarketIndicatorConfig[];
   latestCorrMap: Record<string, number | null>;
+  markets: MarketConfig[];
+  initialMarketCode?: string | null;
+  onBack: () => void;
 }) {
-  const formulaType = "market_score";
+  const trackedMarkets = markets.filter(m => m.is_tracked && m.is_active);
+  const isMarketScore = formulaType === "market_score";
+  // Use initialMarketCode if provided, else first tracked market
+  const [marketCode, setMarketCode] = useState<string | null>(
+    isMarketScore
+      ? (initialMarketCode ?? (trackedMarkets.length > 0 ? trackedMarkets[0].code : null))
+      : null
+  );
+
   const [rows, setRows] = useState<ScoreFormula[]>([]);
   const [loading, setLoading] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<Partial<ScoreFormula>>({});
+  const [editForm, setEditForm] = useState<{ display_name: string; weight: number; is_active: boolean; is_reverse: boolean }>({ display_name: "", weight: 0, is_active: true, is_reverse: false });
   const [saving, setSaving] = useState(false);
-  const [addIndId, setAddIndId] = useState<string>("");
+  const [addIndId, setAddIndId] = useState("");
   const [addWeight, setAddWeight] = useState(0);
+  const [addReverse, setAddReverse] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setRows(await listScoreFormulas(formulaType)); } finally { setLoading(false); }
-  }, []);
+    try {
+      const allRows = await listScoreFormulas(formulaType, isMarketScore ? marketCode : undefined);
+      // filter to just this market's rows (or global when marketCode is null)
+      setRows(isMarketScore
+        ? allRows.filter(r => r.market_code === marketCode)
+        : allRows
+      );
+    } finally { setLoading(false); }
+  }, [formulaType, marketCode, isMarketScore]);
 
   useEffect(() => { load(); }, [load]);
+  // Reset editId when market tab switches
+  useEffect(() => { setEditId(null); }, [marketCode]);
 
   const activeRows = rows.filter(r => r.is_active && r.use_in_calc);
   const totalWeight = activeRows.reduce((s, r) => s + r.weight, 0);
   const linkedKeys = new Set(rows.map(r => r.field_key));
   const availableInds = allIndicators.filter(i => !linkedKeys.has(i.field_key));
 
-  // Build human-readable formula string: "台指漲跌幅 × 40% + VIX × 20% + ... = 90"
-  const formulaStr = activeRows.map((r, i) => {
-    const prefix = i === 0 ? "" : " + ";
-    return `${prefix}${r.display_name} × ${r.weight}%`;
-  }).join("") + (activeRows.length > 0 ? " = 市場分數" : "");
-
   async function handleAdd() {
     setErr("");
-    const selectedInd = allIndicators.find(i => String(i.id) === addIndId);
-    if (!selectedInd) { setErr("請選擇指標"); return; }
+    const ind = allIndicators.find(i => String(i.id) === addIndId);
+    if (!ind) { setErr("請選擇指標"); return; }
     setAddSaving(true);
     try {
-      await createScoreFormula({ formula_type: formulaType, field_key: selectedInd.field_key, display_name: selectedInd.display_name, weight: addWeight, is_active: true, use_in_calc: true, display_order: rows.length + 1 });
-      setAddIndId(""); setAddWeight(0); load();
+      await createScoreFormula({
+        formula_type: formulaType,
+        market_code: isMarketScore ? marketCode : null,
+        field_key: ind.field_key,
+        display_name: ind.display_name,
+        weight: addWeight,
+        is_active: true,
+        use_in_calc: true,
+        is_reverse: addReverse,
+        display_order: rows.length + 1,
+      });
+      setAddIndId(""); setAddWeight(0); setAddReverse(false); load();
     } catch (e) { setErr(extractErr(e)); } finally { setAddSaving(false); }
+  }
+
+  async function handleMove(idx: number, dir: -1 | 1) {
+    const toIdx = idx + dir;
+    if (toIdx < 0 || toIdx >= rows.length) return;
+    const reordered = [...rows];
+    [reordered[idx], reordered[toIdx]] = [reordered[toIdx], reordered[idx]];
+    setRows(reordered);
+    await Promise.all(reordered.map((r, i) => updateScoreFormula(r.id, { display_order: i + 1 }).catch(() => {})));
+  }
+
+  function openEdit(row: ScoreFormula) {
+    setEditId(row.id);
+    setEditForm({ display_name: row.display_name, weight: row.weight, is_active: row.is_active, is_reverse: row.is_reverse });
+  }
+
+  async function handleSaveEdit(rowId: number) {
+    setSaving(true);
+    try {
+      await updateScoreFormula(rowId, editForm);
+      setEditId(null);
+      load();
+    } finally { setSaving(false); }
+  }
+
+  async function handleWeightStep(row: ScoreFormula, delta: number) {
+    const next = Math.max(0, Math.min(100, row.weight + delta));
+    await updateScoreFormula(row.id, { weight: next });
+    load();
+  }
+
+  async function handleToggleReverse(row: ScoreFormula) {
+    await updateScoreFormula(row.id, { is_reverse: !row.is_reverse });
+    load();
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Formula notation card */}
-      {activeRows.length > 0 && (
-        <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-5 py-4 shadow-sm">
-          <p className="mb-1 text-xs font-semibold text-violet-500 uppercase tracking-wide">{marketName} · 市場分數計算公式</p>
-          <p className="text-sm font-medium text-slate-700 leading-relaxed break-all">{formulaStr}</p>
-          <p className="mt-2 text-xs text-slate-500">真實市場方向同步分數：<span className="font-semibold text-violet-600">{totalWeight.toFixed(0)}分基準（加權總和）</span></p>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={onBack} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">← 返回列表</button>
+        <h3 className="text-base font-semibold text-slate-800">{catLabel} · 編輯</h3>
+        <span className="ml-auto text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">v1.0</span>
+      </div>
+
+      {/* Market tabs — only for market_score */}
+      {isMarketScore && trackedMarkets.length > 0 && (
+        <div className="flex flex-wrap gap-1 rounded-xl border border-slate-100 bg-white p-1 shadow-sm w-fit">
+          {trackedMarkets.map(m => (
+            <button key={m.code} type="button" onClick={() => setMarketCode(m.code)}
+              className={["rounded-lg px-4 py-1.5 text-sm font-medium transition-colors", marketCode === m.code ? "bg-indigo-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
+              {m.name}（{m.code}）
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Add factor */}
+      {/* Formula preview */}
+      {activeRows.length > 0 && (
+        <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-5 py-4">
+          <p className="mb-1 text-xs font-semibold text-violet-500 uppercase tracking-wide">目前公式{isMarketScore && marketCode ? ` · ${marketCode}` : ""}</p>
+          <p className="text-sm font-medium text-slate-700 leading-relaxed break-all">
+            {activeRows.map((r, i) => (
+              <span key={r.id}>{i > 0 ? " + " : ""}{r.display_name}{r.is_reverse ? <span className="text-rose-400 text-[10px] ml-0.5">（反向）</span> : null} × {r.weight}%</span>
+            ))}
+            <span className="text-slate-400"> = {catLabel}</span>
+          </p>
+        </div>
+      )}
+
+      {/* Weight progress bar */}
+      <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+        <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
+          <div className={["h-full rounded-full transition-all", totalWeight > 100 ? "bg-red-400" : totalWeight >= 95 ? "bg-emerald-500" : "bg-indigo-400"].join(" ")} style={{ width: `${Math.min(totalWeight, 100)}%` }} />
+        </div>
+        <span className={["text-sm font-bold tabular-nums", totalWeight > 100 ? "text-red-500" : totalWeight >= 95 ? "text-emerald-600" : "text-slate-700"].join(" ")}>{totalWeight.toFixed(1)}%</span>
+        {Math.abs(totalWeight - 100) > 5 && <span className="text-xs text-amber-600">⚠ 建議總和為 100%</span>}
+      </div>
+
+      {/* Add indicator */}
       <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">新增因子（從市場指標選取）</p>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <p className="mb-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">新增指標</p>
+        <div className="grid gap-3 sm:grid-cols-4">
           <select className={inputCls} value={addIndId} onChange={e => setAddIndId(e.target.value)}>
-            <option value="">— 選擇市場指標 —</option>
+            <option value="">— 選擇指標 —</option>
             {availableInds.map(i => <option key={i.id} value={String(i.id)}>{i.display_name}（{i.field_key}）</option>)}
             {availableInds.length === 0 && <option disabled>所有指標已加入</option>}
           </select>
@@ -1122,250 +1229,111 @@ function MarketFormulaSection({
             <input type="number" className={inputCls} placeholder="加權 %" value={addWeight} onChange={e => setAddWeight(Number(e.target.value))} min={0} max={100} step={5} />
             <span className="shrink-0 text-sm text-slate-500">%</span>
           </div>
-          <button className={btnPrimary} disabled={addSaving || !addIndId} onClick={handleAdd} type="button">新增因子</button>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={addReverse} onChange={e => setAddReverse(e.target.checked)} className="h-4 w-4 rounded accent-rose-500" />
+            <span className="text-slate-600">反向計算</span>
+          </label>
+          <button className={btnPrimary} disabled={addSaving || !addIndId} onClick={handleAdd} type="button">+ 新增</button>
         </div>
-        {err ? <p className="mt-2 text-sm text-red-500">{err}</p> : null}
+        {err && <p className="mt-2 text-sm text-red-500">{err}</p>}
       </div>
 
-      {/* Weight progress bar */}
-      <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-        <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
-          <div className={["h-full rounded-full transition-all", totalWeight > 100 ? "bg-red-400" : totalWeight >= 95 ? "bg-emerald-500" : "bg-indigo-400"].join(" ")} style={{ width: `${Math.min(totalWeight, 100)}%` }} />
-        </div>
-        <span className={["text-sm font-bold", totalWeight > 100 ? "text-red-500" : totalWeight >= 95 ? "text-emerald-600" : "text-slate-700"].join(" ")}>{totalWeight.toFixed(1)}%</span>
-        <span className="text-xs text-slate-400">（啟用且納入計算的加權總和，建議 100%）</span>
-      </div>
-
-      {/* Factor table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-100 bg-white shadow-sm">
-        <table className="min-w-full">
-          <thead className="bg-slate-50"><tr><Th>納入計算</Th><Th>指標名稱</Th><Th>欄位鍵</Th><Th>加權 (%)</Th><Th>相關係數（上月）</Th><Th>啟用</Th><Th>操作</Th></tr></thead>
-          <tbody>
-            {loading ? <tr><td colSpan={7} className="py-10 text-center text-sm text-slate-400">載入中…</td></tr>
-              : rows.length === 0 ? <tr><td colSpan={7} className="py-10 text-center text-sm text-slate-400">尚無因子，請新增</td></tr>
-              : rows.map(row => {
-              const corr = latestCorrMap[row.field_key] ?? null;
-              return (
-              <tr key={row.id} className={["hover:bg-slate-50/60", !row.is_active ? "opacity-50" : ""].join(" ")}>
-                <Td><input type="checkbox" checked={row.use_in_calc} className="h-4 w-4 rounded accent-indigo-500 cursor-pointer" onChange={async () => { await updateScoreFormula(row.id, { use_in_calc: !row.use_in_calc }); load(); }} /></Td>
-                {editId === row.id ? (
-                  <>
-                    <Td><input className={inputCls} defaultValue={row.display_name} onChange={e => setEditForm(p => ({ ...p, display_name: e.target.value }))} /></Td>
-                    <Td><span className="font-mono text-xs text-slate-500">{row.field_key}</span></Td>
-                    <Td><input type="number" className={`${inputCls} w-20`} defaultValue={row.weight} onChange={e => setEditForm(p => ({ ...p, weight: Number(e.target.value) }))} min={0} max={100} step={5} /></Td>
-                    <Td><span className={corrColor(corr)}>{corr != null ? corr.toFixed(3) : "—"}</span></Td>
-                    <Td><label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" defaultChecked={row.is_active} onChange={e => setEditForm(p => ({ ...p, is_active: e.target.checked }))} />啟用</label></Td>
-                    <Td><div className="flex gap-1.5">
-                      <button className={btnPrimary} disabled={saving} onClick={async () => { setSaving(true); try { await updateScoreFormula(row.id, { weight: editForm.weight, is_active: editForm.is_active, display_name: editForm.display_name }); setEditId(null); load(); } finally { setSaving(false); } }} type="button">儲存</button>
-                      <button className={btnSecondary} onClick={() => setEditId(null)} type="button">取消</button>
-                      <button className={btnDanger} onClick={async () => { if (!confirm("刪除此因子？")) return; await deleteScoreFormula(row.id); load(); }} type="button">刪除</button>
-                    </div></Td>
-                  </>
-                ) : (
-                  <>
-                    <Td><span className="font-medium text-slate-900">{row.display_name}</span></Td>
-                    <Td><span className="font-mono text-xs text-slate-500">{row.field_key}</span></Td>
-                    <Td>
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-indigo-400" style={{ width: `${Math.min(row.weight, 100)}%` }} /></div>
-                        <span className="text-sm font-semibold tabular-nums text-slate-700">{row.weight}%</span>
-                      </div>
-                    </Td>
-                    <Td><span className={corrColor(corr)}>{corr != null ? corr.toFixed(3) : <span className="text-xs text-slate-400">—</span>}</span></Td>
-                    <Td><Badge label={row.is_active ? "啟用" : "停用"} color={row.is_active ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"} /></Td>
-                    <Td><button className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50" onClick={() => { setEditId(row.id); setEditForm({ weight: row.weight, is_active: row.is_active, display_name: row.display_name }); }} type="button">編輯</button></Td>
-                  </>
-                )}
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ── Analysis sub-tab: Factor Management ──────────────────────────────────────
-
-function FactorManagementSection({
-  allMarkets,
-  latestCorrMap,
-}: {
-  allMarkets: MarketConfig[];
-  latestCorrMap: Record<string, number | null>;
-}) {
-  const [rows, setRows] = useState<MarketIndicatorConfig[]>([]);
-  const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [editRow, setEditRow] = useState<MarketIndicatorConfig | null>(null);
-  const [editForm, setEditForm] = useState<Partial<MarketIndicatorConfig & { api_config_id: number | null; api_source: string | null }>>({});
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [expandedMarkets, setExpandedMarkets] = useState<Record<number, MarketConfig[]>>({});
-  const [addForm, setAddForm] = useState({ field_key: "", display_name: "", unit: "%", description: "", formula: "", display_order: 0 });
-  const [addSaving, setAddSaving] = useState(false);
-  const [formulaRows, setFormulaRows] = useState<ScoreFormula[]>([]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [inds, apis, formulas] = await Promise.all([listIndicatorConfigs(), listApiConfigs(), listScoreFormulas("market_score")]);
-      setRows(inds); setApiConfigs(apis); setFormulaRows(formulas);
-    } finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const apiMap = useMemo(() => { const m: Record<number, string> = {}; apiConfigs.forEach(a => { m[a.id] = a.name; }); return m; }, [apiConfigs]);
-  const weightMap = useMemo(() => { const m: Record<string, number> = {}; formulaRows.forEach(f => { m[f.field_key] = f.weight; }); return m; }, [formulaRows]);
-
-  async function loadMarketLinks(indId: number) {
-    if (expandedMarkets[indId]) { setExpandedId(expandedId === indId ? null : indId); return; }
-    // Find markets linked to this indicator by checking each tracked market
-    const linked: MarketConfig[] = [];
-    await Promise.all(allMarkets.map(async m => {
-      try {
-        const links = await getMarketIndicators(m.id);
-        if (links.some(l => l.indicator_config_id === indId)) linked.push(m);
-      } catch { /* skip */ }
-    }));
-    setExpandedMarkets(p => ({ ...p, [indId]: linked }));
-    setExpandedId(expandedId === indId ? null : indId);
-  }
-
-  function apiLabel(row: MarketIndicatorConfig) {
-    if (row.api_source) return row.api_source;
-    if (row.api_config_id && apiMap[row.api_config_id]) return apiMap[row.api_config_id];
-    return null;
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      {/* Add form */}
-      <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-slate-700">新增因子指標</h3>
-        <div className="grid gap-3 sm:grid-cols-4">
-          <input className={inputCls} placeholder="欄位鍵（唯一）如 vix" value={addForm.field_key} onChange={e => setAddForm(p => ({ ...p, field_key: e.target.value }))} />
-          <input className={inputCls} placeholder="顯示名稱 如 VIX恐慌指數" value={addForm.display_name} onChange={e => setAddForm(p => ({ ...p, display_name: e.target.value }))} />
-          <input className={inputCls} placeholder="單位 如 %" value={addForm.unit} onChange={e => setAddForm(p => ({ ...p, unit: e.target.value }))} />
-          <button className={btnPrimary} disabled={addSaving} onClick={async () => {
-            if (!addForm.field_key || !addForm.display_name) { setErr("欄位鍵與顯示名稱為必填"); return; }
-            setAddSaving(true); setErr("");
-            try { await createIndicatorConfig({ field_key: addForm.field_key, display_name: addForm.display_name, unit: addForm.unit, description: addForm.description || null, formula: addForm.formula || null, display_order: addForm.display_order, is_active: true }); setAddForm({ field_key: "", display_name: "", unit: "%", description: "", formula: "", display_order: 0 }); load(); }
-            catch (e) { setErr(extractErr(e)); } finally { setAddSaving(false); }
-          }} type="button">新增</button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 mt-2">
-          <input className={inputCls} placeholder="說明（選填）" value={addForm.description} onChange={e => setAddForm(p => ({ ...p, description: e.target.value }))} />
-          <input className={inputCls} placeholder="計算公式（選填）" value={addForm.formula} onChange={e => setAddForm(p => ({ ...p, formula: e.target.value }))} />
-        </div>
-        {err ? <p className="mt-2 text-sm text-red-500">{err}</p> : null}
-      </div>
-
-      {/* Factor table */}
+      {/* Indicator table */}
       <div className="overflow-x-auto rounded-xl border border-slate-100 bg-white shadow-sm">
         <table className="min-w-full">
           <thead className="bg-slate-50">
-            <tr>
-              <Th>欄位鍵</Th>
-              <Th>顯示名稱</Th>
-              <Th>單位</Th>
-              <Th>排序</Th>
-              <Th>公式加權</Th>
-              <Th>上月相關係數</Th>
-              <Th>關聯 API</Th>
-              <Th>啟用</Th>
-              <Th>操作</Th>
-            </tr>
+            <tr><Th>排序</Th><Th>納入</Th><Th>指標名稱</Th><Th>欄位鍵</Th><Th>加權 (%)</Th><Th>反向</Th><Th>相關係數</Th><Th>啟用</Th><Th>操作</Th></tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan={9} className="py-10 text-center text-sm text-slate-400">載入中…</td></tr>
-              : rows.map(row => {
-              const corr = latestCorrMap[row.field_key] ?? null;
-              const weight = weightMap[row.field_key] ?? null;
-              const api = apiLabel(row);
-              return (
-              <Fragment key={row.id}>
-                <tr className={["hover:bg-slate-50/60", !row.is_active ? "opacity-50" : ""].join(" ")}>
-                  {editRow?.id === row.id ? (
-                    <>
-                      <Td><span className="font-mono text-xs text-slate-400">{row.field_key}</span></Td>
-                      <Td><input className={inputCls} defaultValue={row.display_name} onChange={e => setEditForm(p => ({ ...p, display_name: e.target.value }))} /></Td>
-                      <Td><input className={`${inputCls} w-16`} defaultValue={row.unit} onChange={e => setEditForm(p => ({ ...p, unit: e.target.value }))} /></Td>
-                      <Td><input type="number" className={`${inputCls} w-16`} defaultValue={row.display_order} onChange={e => setEditForm(p => ({ ...p, display_order: Number(e.target.value) }))} /></Td>
-                      <Td><span className="text-xs text-slate-400">{weight != null ? `${weight}%` : "—"}</span></Td>
-                      <Td><span className={corrColor(corr)}>{corr != null ? corr.toFixed(3) : "—"}</span></Td>
+            {loading
+              ? <tr><td colSpan={9} className="py-10 text-center text-sm text-slate-400">載入中…</td></tr>
+              : rows.length === 0
+                ? <tr><td colSpan={9} className="py-10 text-center text-sm text-slate-400">尚無指標，請新增</td></tr>
+                : rows.map((row, idx) => {
+                  const corr = latestCorrMap[row.field_key] ?? null;
+                  const isEditing = editId === row.id;
+                  return (
+                    <tr key={row.id} className={["border-b border-slate-50 hover:bg-slate-50/60", !row.is_active ? "opacity-50" : ""].join(" ")}>
+                      {/* ↑↓ move buttons */}
                       <Td>
-                        <div className="flex flex-col gap-1">
-                          <select className={inputCls} defaultValue={String(row.api_config_id ?? "")} onChange={e => setEditForm(p => ({ ...p, api_config_id: e.target.value ? Number(e.target.value) : null }))}>
-                            <option value="">— 不指定 —</option>{apiConfigs.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-                          </select>
-                          <input className={`${inputCls} text-xs`} defaultValue={row.api_source ?? ""} placeholder="自訂 API 名稱" onChange={e => setEditForm(p => ({ ...p, api_source: e.target.value || null }))} />
+                        <div className="flex flex-col gap-0.5">
+                          <button type="button" onClick={() => handleMove(idx, -1)} disabled={idx === 0} className="rounded px-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 text-xs leading-none">▲</button>
+                          <button type="button" onClick={() => handleMove(idx, 1)} disabled={idx === rows.length - 1} className="rounded px-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 text-xs leading-none">▼</button>
                         </div>
                       </Td>
-                      <Td><label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" defaultChecked={row.is_active} onChange={e => setEditForm(p => ({ ...p, is_active: e.target.checked }))} />啟用</label></Td>
-                      <Td><div className="flex gap-1.5">
-                        <button className={btnPrimary} disabled={saving} onClick={async () => { setSaving(true); try { await updateIndicatorConfig(editRow!.id, editForm); setEditRow(null); load(); } catch (e) { setErr(extractErr(e)); } finally { setSaving(false); } }} type="button">儲存</button>
-                        <button className={btnSecondary} onClick={() => setEditRow(null)} type="button">取消</button>
-                      </div></Td>
-                    </>
-                  ) : (
-                    <>
-                      <Td><span className="font-mono text-xs text-slate-500">{row.field_key}</span></Td>
-                      <Td><span className="font-medium text-slate-900">{row.display_name}</span></Td>
-                      <Td>{row.unit}</Td>
-                      <Td>{row.display_order}</Td>
+                      {/* use_in_calc quick toggle */}
                       <Td>
-                        {weight != null
-                          ? <div className="flex items-center gap-1.5"><div className="w-12 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-indigo-400" style={{ width: `${Math.min(weight, 100)}%` }} /></div><span className="text-xs font-semibold text-slate-700 tabular-nums">{weight}%</span></div>
-                          : <span className="text-xs text-slate-400">未加入</span>}
+                        <input type="checkbox" checked={row.use_in_calc} className="h-4 w-4 rounded accent-indigo-500 cursor-pointer"
+                          onChange={async () => { await updateScoreFormula(row.id, { use_in_calc: !row.use_in_calc }); load(); }} />
                       </Td>
-                      <Td><span className={corrColor(corr)}>{corr != null ? corr.toFixed(3) : <span className="text-xs text-slate-400">—</span>}</span></Td>
-                      <Td>{api ? <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">🔗 {api}</span> : <span className="text-xs text-slate-400">未設定</span>}</Td>
-                      <Td><Badge label={row.is_active ? "啟用" : "停用"} color={row.is_active ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"} /></Td>
-                      <Td>
-                        <div className="flex gap-1.5">
-                          <button className="rounded-md border border-indigo-200 px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50" onClick={() => loadMarketLinks(row.id)} type="button">
-                            {expandedId === row.id ? "收起 ▲" : "關聯 ▼"}
-                          </button>
-                          <button className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50" onClick={() => { setEditRow(row); setEditForm({}); }} type="button">編輯</button>
-                          <button className={btnDanger} onClick={async () => { if (!confirm(`刪除因子「${row.display_name}」？此操作不可逆。`)) return; try { await deleteIndicatorConfig(row.id); load(); } catch (e) { alert(extractErr(e)); } }} type="button">刪除</button>
-                        </div>
-                      </Td>
-                    </>
-                  )}
-                </tr>
-                {expandedId === row.id && (
-                  <tr><td colSpan={9} className="bg-slate-50/80 border-b border-slate-100">
-                    <div className="px-5 py-3 flex flex-col gap-3">
-                      {/* Description / formula */}
-                      {(row.description || row.formula) && (
-                        <div>
-                          {row.description && <p className="text-xs text-slate-600">{row.description}</p>}
-                          {row.formula && <p className="mt-1 font-mono text-xs text-indigo-600 bg-indigo-50/60 px-2 py-1 rounded">{row.formula}</p>}
-                        </div>
+
+                      {isEditing ? (
+                        <>
+                          <Td><input className={inputCls} value={editForm.display_name} onChange={e => setEditForm(p => ({ ...p, display_name: e.target.value }))} /></Td>
+                          <Td><span className="font-mono text-xs text-slate-500">{row.field_key}</span></Td>
+                          <Td>
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={() => setEditForm(p => ({ ...p, weight: Math.max(0, p.weight - 5) }))} className="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50">−5</button>
+                              <input type="number" className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-sm text-center focus:outline-none focus:border-indigo-400"
+                                value={editForm.weight} onChange={e => setEditForm(p => ({ ...p, weight: Number(e.target.value) }))} min={0} max={100} />
+                              <button type="button" onClick={() => setEditForm(p => ({ ...p, weight: Math.min(100, p.weight + 5) }))} className="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50">+5</button>
+                            </div>
+                          </Td>
+                          {/* is_reverse — controlled checkbox, no defaultChecked bug */}
+                          <Td>
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                              <input type="checkbox" checked={editForm.is_reverse}
+                                onChange={e => setEditForm(p => ({ ...p, is_reverse: e.target.checked }))}
+                                className="h-4 w-4 rounded accent-rose-500" />
+                              <span className="text-xs text-slate-600">反向</span>
+                            </label>
+                          </Td>
+                          <Td><span className={corrColor(corr)}>{corr != null ? corr.toFixed(3) : "—"}</span></Td>
+                          <Td>
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                              <input type="checkbox" checked={editForm.is_active}
+                                onChange={e => setEditForm(p => ({ ...p, is_active: e.target.checked }))} />
+                              <span className="text-xs text-slate-600">啟用</span>
+                            </label>
+                          </Td>
+                          <Td>
+                            <div className="flex gap-1.5">
+                              <button className={btnPrimary + " text-xs px-2 py-1"} disabled={saving} onClick={() => handleSaveEdit(row.id)} type="button">儲存</button>
+                              <button className={btnSecondary + " text-xs px-2 py-1"} onClick={() => setEditId(null)} type="button">取消</button>
+                              <button className={btnDanger} onClick={async () => { if (!confirm("刪除？")) return; await deleteScoreFormula(row.id); load(); }} type="button">刪</button>
+                            </div>
+                          </Td>
+                        </>
+                      ) : (
+                        <>
+                          <Td><span className="font-medium text-slate-900">{row.display_name}</span></Td>
+                          <Td><span className="font-mono text-xs text-slate-500">{row.field_key}</span></Td>
+                          {/* Inline weight stepper */}
+                          <Td>
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={() => handleWeightStep(row, -5)} className="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50 select-none">−5</button>
+                              <span className="w-10 text-center text-sm font-semibold tabular-nums text-slate-700">{row.weight}%</span>
+                              <button type="button" onClick={() => handleWeightStep(row, 5)} className="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50 select-none">+5</button>
+                            </div>
+                          </Td>
+                          {/* is_reverse direct toggle */}
+                          <Td>
+                            <button type="button"
+                              onClick={() => handleToggleReverse(row)}
+                              className={["rounded-full px-2 py-0.5 text-xs font-medium transition-colors", row.is_reverse ? "bg-rose-100 text-rose-600 hover:bg-rose-200" : "bg-slate-100 text-slate-400 hover:bg-slate-200"].join(" ")}>
+                              {row.is_reverse ? "反向 ✓" : "正向"}
+                            </button>
+                          </Td>
+                          <Td><span className={corrColor(corr)}>{corr != null ? corr.toFixed(3) : "—"}</span></Td>
+                          <Td><Badge label={row.is_active ? "啟用" : "停用"} color={row.is_active ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"} /></Td>
+                          <Td>
+                            <button className={btnSecondary + " text-xs px-2 py-1"} onClick={() => openEdit(row)} type="button">編輯名稱</button>
+                          </Td>
+                        </>
                       )}
-                      {/* Linked markets */}
-                      <div>
-                        <p className="mb-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">關聯市場</p>
-                        <div className="flex flex-wrap gap-2">
-                          {(expandedMarkets[row.id] ?? []).length === 0
-                            ? <span className="text-xs text-slate-400">尚未關聯任何市場（至「市場管理」→ 指標 ▼ 進行設定）</span>
-                            : (expandedMarkets[row.id] ?? []).map(m => (
-                              <span key={m.id} className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-3 py-1 text-xs font-medium text-blue-700">
-                                {m.name} <span className="text-blue-400">({m.code})</span>
-                              </span>
-                            ))}
-                        </div>
-                      </div>
-                    </div>
-                  </td></tr>
-                )}
-              </Fragment>
-              );
-            })}
+                    </tr>
+                  );
+                })}
           </tbody>
         </table>
       </div>
@@ -1373,92 +1341,474 @@ function FactorManagementSection({
   );
 }
 
-// ── Analysis sub-tab: Monthly Reports (view-only) ─────────────────────────────
+// ── Formula Management (list + drill-down) ─────────────────────────────────
+function FormulaManagementSection({ allIndicators, latestCorrMap, markets }: {
+  allIndicators: MarketIndicatorConfig[];
+  latestCorrMap: Record<string, number | null>;
+  markets: MarketConfig[];
+}) {
+  const trackedMarkets = markets.filter(m => m.is_active);
+  const [catType, setCatType] = useState<FormulaCatType>("market_score");
+  // editingType + optional market code for market_score cards
+  const [editingType, setEditingType] = useState<FormulaCatType | null>(null);
+  const [editingMarketCode, setEditingMarketCode] = useState<string | null>(null);
+  // summaries keyed by formula_type (for non-market categories)
+  const [summaries, setSummaries] = useState<Record<string, ScoreFormula[]>>({});
+  // per-market summaries for market_score: { "TW": [...], "US": [...] }
+  const [marketSummaries, setMarketSummaries] = useState<Record<string, ScoreFormula[]>>({});
+  const [loadingSummaries, setLoadingSummaries] = useState(false);
 
-function MonthlyReportSection() {
-  const [reports, setReports] = useState<FactorCorrReport[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const loadSummaries = useCallback(() => {
+    setLoadingSummaries(true);
+    const nonMarketTypes = FORMULA_CATEGORIES.filter(c => c.type !== "market_score");
+    const globalLoad = Promise.all(nonMarketTypes.map(c =>
+      listScoreFormulas(c.type).then(rows => ({ type: c.type, rows }))
+    ));
+    // Load per-market formulas for market_score
+    const marketLoad = Promise.all(trackedMarkets.map(m =>
+      listScoreFormulas("market_score", m.code)
+        .then(rows => ({ code: m.code, rows: rows.filter(r => r.market_code === m.code) }))
+    ));
+    Promise.all([globalLoad, marketLoad]).then(([globalResults, marketResults]) => {
+      const s: Record<string, ScoreFormula[]> = {};
+      globalResults.forEach(r => { s[r.type] = r.rows; });
+      setSummaries(s);
+      const ms: Record<string, ScoreFormula[]> = {};
+      marketResults.forEach(r => { ms[r.code] = r.rows; });
+      setMarketSummaries(ms);
+    }).catch(() => {}).finally(() => setLoadingSummaries(false));
+  }, [trackedMarkets]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setReports(await listFactorCorrReports()); } catch { /* silently fail */ } finally { setLoading(false); }
-  }, []);
+  useEffect(() => { loadSummaries(); }, [loadSummaries, editingType]);
 
-  useEffect(() => { load(); }, [load]);
-
-  // Format report_month "2026-01" → "01/01–01/31"
-  function formatMonthRange(month: string) {
-    const [year, m] = month.split("-");
-    const lastDay = new Date(Number(year), Number(m), 0).getDate();
-    return `${m}/01–${m}/${lastDay}`;
+  function openEditor(type: FormulaCatType, mc?: string | null) {
+    setEditingType(type);
+    setEditingMarketCode(mc ?? null);
   }
 
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 text-xs text-slate-500">
-        月度報表僅供查閱。七月時顯示六月數據（上個完整月份），因子相關係數同步至公式管理的「相關係數（上月）」欄位。
-      </div>
-      {loading ? <div className="py-10 text-center text-sm text-slate-400">載入中…</div>
-        : reports.length === 0 ? <div className="rounded-xl border border-slate-100 bg-white py-10 text-center text-sm text-slate-400 shadow-sm">尚無月度報表記錄</div>
-        : reports.map(r => {
-          const entries = (r.factor_entries ?? []) as FactorEntry[];
-          return (
-          <div key={r.id} className="rounded-xl border border-slate-100 bg-white shadow-sm">
-            <div className="flex items-center justify-between px-5 py-3 gap-3 flex-wrap">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="font-mono text-sm font-semibold text-slate-800">{formatMonthRange(r.report_month)}</span>
-                <span className="text-xs text-slate-400">{r.report_month}</span>
-                {r.market_score_actual_corr != null && (
-                  <span className="text-xs text-slate-500">
-                    市場準確度：<span className={corrColor(r.market_score_actual_corr)}>{r.market_score_actual_corr.toFixed(3)}</span>
-                  </span>
-                )}
-                {entries.length > 0 && (
-                  <span className="text-xs text-slate-400">因子相關係數：
-                    {entries.slice(0, 3).map((fe, i) => (
-                      <span key={i} className="ml-1">{fe.display_name} <span className={corrColor(fe.corr_score)}>{fe.corr_score != null ? fe.corr_score.toFixed(2) : "—"}</span></span>
-                    ))}
-                    {entries.length > 3 && <span className="ml-1 text-slate-400">…</span>}
-                  </span>
-                )}
-              </div>
-              {entries.length > 0 && (
-                <button className="rounded-md border border-indigo-200 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 shrink-0" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)} type="button">
-                  {expandedId === r.id ? "收起 ▲" : `展開 ${entries.length} 因子 ▼`}
-                </button>
-              )}
+  function closeEditor() {
+    setEditingType(null);
+    setEditingMarketCode(null);
+  }
+
+  if (editingType) {
+    const cat = FORMULA_CATEGORIES.find(c => c.type === editingType)!;
+    return (
+      <FormulaItemEditor
+        formulaType={editingType}
+        catLabel={cat.label}
+        allIndicators={allIndicators}
+        latestCorrMap={latestCorrMap}
+        markets={markets}
+        initialMarketCode={editingMarketCode}
+        onBack={closeEditor}
+      />
+    );
+  }
+
+  // Helper: render a single formula summary card
+  function FormulaCard({
+    title, subtitle, rows, onEdit,
+  }: { title: string; subtitle?: string; rows: ScoreFormula[]; onEdit: () => void }) {
+    const activeRows = rows.filter(r => r.is_active && r.use_in_calc);
+    const totalWeight = activeRows.reduce((s, r) => s + r.weight, 0);
+    const weightOk = totalWeight >= 95 && totalWeight <= 105;
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div>
+              <p className="font-semibold text-slate-900 text-sm">{title}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {subtitle ? `${subtitle} · ` : ""}
+                {rows.length} 個指標 · {activeRows.length} 個啟用 · v1.0
+              </p>
             </div>
-            {expandedId === r.id && entries.length > 0 && (
-              <div className="border-t border-slate-100 px-5 py-4 bg-slate-50/60">
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {entries.map((fe, i) => (
-                    <div key={i} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                      <div><p className="font-medium text-slate-800">{fe.display_name}</p><p className="text-xs text-slate-400">{fe.field_key} · 加權 {fe.weight}%</p></div>
-                      <span className={corrColor(fe.corr_score)}>{fe.corr_score != null ? fe.corr_score.toFixed(3) : "—"}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <Badge
+              label={weightOk ? "權重正常" : rows.length === 0 ? "尚未設定" : `⚠ ${totalWeight.toFixed(0)}%`}
+              color={weightOk ? "bg-emerald-50 text-emerald-600" : rows.length === 0 ? "bg-slate-100 text-slate-400" : "bg-amber-50 text-amber-600"}
+            />
           </div>
-        );
-      })}
+          <button className={btnPrimary} onClick={onEdit} type="button">編輯公式</button>
+        </div>
+        {activeRows.length > 0 ? (
+          <div className="px-5 py-3 bg-violet-50/40 border-b border-slate-100">
+            <p className="text-xs text-slate-600 leading-relaxed break-all">
+              {activeRows.map((r, i) => (
+                <span key={r.id}>
+                  {i > 0 ? " + " : ""}
+                  {r.display_name}
+                  {r.is_reverse ? <span className="text-rose-400 text-[10px] ml-0.5">（反向）</span> : null}
+                  {" × "}{r.weight}%
+                </span>
+              ))}
+              <span className="text-slate-400"> = {title}</span>
+            </p>
+          </div>
+        ) : (
+          <div className="px-5 py-3 bg-slate-50/60">
+            <p className="text-xs text-slate-400 italic">尚未設定公式 — 點擊「編輯公式」開始新增指標</p>
+          </div>
+        )}
+        <div className="px-5 py-3 flex items-center gap-3">
+          <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className={["h-full rounded-full", weightOk ? "bg-emerald-500" : totalWeight > 100 ? "bg-red-400" : "bg-amber-400"].join(" ")}
+              style={{ width: `${Math.min(totalWeight, 100)}%` }}
+            />
+          </div>
+          <span className={["text-xs font-bold tabular-nums", weightOk ? "text-emerald-600" : totalWeight > 0 ? "text-amber-600" : "text-slate-400"].join(" ")}>
+            {totalWeight.toFixed(1)}%
+          </span>
+          {!weightOk && rows.length > 0 && <span className="text-xs text-amber-500">建議設定為 100%</span>}
+        </div>
+      </div>
+    );
+  }
+
+  const cat = FORMULA_CATEGORIES.find(c => c.type === catType)!;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Category tabs */}
+      <div className="flex gap-1 rounded-xl bg-white border border-slate-100 p-1 shadow-sm w-fit">
+        {FORMULA_CATEGORIES.map(c => (
+          <button key={c.type} type="button" onClick={() => setCatType(c.type as FormulaCatType)}
+            className={["rounded-lg px-4 py-1.5 text-sm font-medium transition-colors", catType === c.type ? "bg-violet-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-sm text-slate-500">{cat.description}</p>
+
+      {loadingSummaries ? (
+        <div className="py-10 text-center text-sm text-slate-400">載入中…</div>
+      ) : catType === "market_score" ? (
+        // Per-market cards
+        <div className="flex flex-col gap-3">
+          {trackedMarkets.length === 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+              尚未設定追蹤市場。請先至「市場管理」啟用並追蹤市場，才會在此顯示對應的市場公式卡片。
+            </div>
+          ) : trackedMarkets.map(m => (
+            <FormulaCard
+              key={m.code}
+              title={m.name}
+              subtitle={m.code}
+              rows={marketSummaries[m.code] ?? []}
+              onEdit={() => openEditor("market_score", m.code)}
+            />
+          ))}
+        </div>
+      ) : (
+        // Single global card for industry_score / stock_score
+        <FormulaCard
+          title={cat.label}
+          rows={summaries[catType] ?? []}
+          onEdit={() => openEditor(catType)}
+        />
+      )}
     </div>
   );
 }
 
+// ── Model Backtest (mock data) ─────────────────────────────────────────────
+type BacktestMetrics = { win_rate: number; avg_return: number; max_drawdown: number; expected_value: number; trade_count: number; assets: string[] };
+type MockModel = { id: string; name: string; versions: string[] };
+
+const MOCK_MODELS: MockModel[] = [
+  { id: "tech_growth", name: "科技成長模型", versions: ["v2.1", "v2.0", "v1.5"] },
+  { id: "semiconductor", name: "半導體模型", versions: ["v1.3", "v1.2"] },
+  { id: "etf_swing", name: "ETF波段模型", versions: ["v3.0", "v2.5", "v2.0"] },
+];
+
+const MOCK_BACKTEST: Record<string, Record<string, Record<string, BacktestMetrics>>> = {
+  tech_growth: {
+    "v2.1": {
+      "30d": { win_rate: 68.5, avg_return: 4.2, max_drawdown: -8.3, expected_value: 2.1, trade_count: 12, assets: ["NVDA", "2330", "QQQ", "0050"] },
+      "90d": { win_rate: 63.2, avg_return: 5.8, max_drawdown: -12.1, expected_value: 2.8, trade_count: 34, assets: ["NVDA", "2330", "QQQ", "0050"] },
+      "180d": { win_rate: 61.5, avg_return: 7.3, max_drawdown: -14.5, expected_value: 3.2, trade_count: 68, assets: ["NVDA", "2330", "QQQ", "0050"] },
+      "365d": { win_rate: 65.8, avg_return: 9.1, max_drawdown: -18.2, expected_value: 4.5, trade_count: 126, assets: ["NVDA", "2330", "QQQ", "0050"] },
+    },
+    "v2.0": {
+      "30d": { win_rate: 62.1, avg_return: 3.1, max_drawdown: -9.2, expected_value: 1.5, trade_count: 11, assets: ["NVDA", "2330", "QQQ"] },
+      "90d": { win_rate: 58.4, avg_return: 4.2, max_drawdown: -13.5, expected_value: 1.9, trade_count: 29, assets: ["NVDA", "2330", "QQQ"] },
+    },
+    "v1.5": {
+      "90d": { win_rate: 55.0, avg_return: 2.8, max_drawdown: -15.1, expected_value: 0.8, trade_count: 25, assets: ["NVDA", "2330"] },
+    },
+  },
+  semiconductor: {
+    "v1.3": {
+      "30d": { win_rate: 72.2, avg_return: 5.8, max_drawdown: -7.2, expected_value: 3.6, trade_count: 9, assets: ["2330", "2454", "3711", "SMH"] },
+      "90d": { win_rate: 70.5, avg_return: 11.3, max_drawdown: -10.4, expected_value: 5.8, trade_count: 28, assets: ["2330", "2454", "3711", "SMH"] },
+      "180d": { win_rate: 68.8, avg_return: 14.2, max_drawdown: -13.8, expected_value: 6.9, trade_count: 55, assets: ["2330", "2454", "3711", "SMH"] },
+      "365d": { win_rate: 71.4, avg_return: 22.5, max_drawdown: -16.3, expected_value: 9.2, trade_count: 98, assets: ["2330", "2454", "3711", "SMH"] },
+    },
+    "v1.2": {
+      "90d": { win_rate: 65.3, avg_return: 8.9, max_drawdown: -12.0, expected_value: 3.9, trade_count: 24, assets: ["2330", "2454", "SMH"] },
+    },
+  },
+  etf_swing: {
+    "v3.0": {
+      "30d": { win_rate: 60.0, avg_return: 2.8, max_drawdown: -5.1, expected_value: 1.1, trade_count: 5, assets: ["0050", "0056", "QQQ", "SPY"] },
+      "90d": { win_rate: 58.3, avg_return: 5.2, max_drawdown: -7.4, expected_value: 1.8, trade_count: 18, assets: ["0050", "0056", "QQQ", "SPY"] },
+      "180d": { win_rate: 61.5, avg_return: 7.8, max_drawdown: -9.1, expected_value: 2.9, trade_count: 39, assets: ["0050", "0056", "QQQ", "SPY"] },
+      "365d": { win_rate: 63.2, avg_return: 11.4, max_drawdown: -11.8, expected_value: 3.8, trade_count: 74, assets: ["0050", "0056", "QQQ", "SPY"] },
+    },
+    "v2.5": {
+      "90d": { win_rate: 55.0, avg_return: 3.9, max_drawdown: -8.9, expected_value: 1.1, trade_count: 16, assets: ["0050", "QQQ", "SPY"] },
+    },
+    "v2.0": {
+      "90d": { win_rate: 51.2, avg_return: 2.1, max_drawdown: -10.3, expected_value: 0.4, trade_count: 14, assets: ["0050", "QQQ"] },
+    },
+  },
+};
+
+const BACKTEST_INTERVALS = [
+  { value: "30d", label: "近30天" },
+  { value: "90d", label: "近90天" },
+  { value: "180d", label: "近半年" },
+  { value: "365d", label: "近一年" },
+];
+
+function MetricCard({ label, value, unit = "", color = "text-slate-900" }: { label: string; value: string; unit?: string; color?: string }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white px-4 py-4 shadow-sm">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">{label}</p>
+      <p className={["text-2xl font-bold tabular-nums", color].join(" ")}>{value}<span className="text-sm font-normal text-slate-400 ml-1">{unit}</span></p>
+    </div>
+  );
+}
+
+function ModelBacktestSection() {
+  const [modelId, setModelId] = useState(MOCK_MODELS[0].id);
+  const [version, setVersion] = useState(MOCK_MODELS[0].versions[0]);
+  const [interval, setInterval] = useState("90d");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [comparing, setComparing] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  const model = MOCK_MODELS.find(m => m.id === modelId) ?? MOCK_MODELS[0];
+  const result = MOCK_BACKTEST[modelId]?.[version]?.[interval];
+
+  function handleModelChange(id: string) {
+    const m = MOCK_MODELS.find(m => m.id === id)!;
+    setModelId(id); setVersion(m.versions[0]);
+  }
+
+  async function handleRun() {
+    setRunning(true);
+    await new Promise(r => setTimeout(r, 1200));
+    setRunning(false);
+  }
+
+  const compVersions = model.versions.slice(0, Math.min(3, model.versions.length));
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <p className="mb-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">回測設定</p>
+        <div className="grid gap-4 sm:grid-cols-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-slate-500">選擇模型</label>
+            <select className={inputCls} value={modelId} onChange={e => handleModelChange(e.target.value)}>
+              {MOCK_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-slate-500">模型版本</label>
+            <select className={inputCls} value={version} onChange={e => setVersion(e.target.value)}>
+              {model.versions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-slate-500">回測區間</label>
+            <select className={inputCls} value={interval} onChange={e => setInterval(e.target.value)}>
+              {BACKTEST_INTERVALS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+              <option value="custom">自訂區間</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <button className={btnPrimary} onClick={handleRun} disabled={running} type="button">
+              {running ? "執行中…" : "執行回測"}
+            </button>
+          </div>
+        </div>
+        {interval === "custom" && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5"><label className="text-xs text-slate-500">開始日期</label><input type="date" className={inputCls} value={customStart} onChange={e => setCustomStart(e.target.value)} /></div>
+            <div className="flex flex-col gap-1.5"><label className="text-xs text-slate-500">結束日期</label><input type="date" className={inputCls} value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>
+          </div>
+        )}
+      </div>
+
+      {result ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-5">
+            <MetricCard label="勝率" value={`${result.win_rate.toFixed(1)}`} unit="%" color={result.win_rate >= 60 ? "text-emerald-600" : "text-amber-600"} />
+            <MetricCard label="平均報酬" value={`+${result.avg_return.toFixed(1)}`} unit="%" color="text-indigo-600" />
+            <MetricCard label="最大回撤" value={`${result.max_drawdown.toFixed(1)}`} unit="%" color="text-rose-600" />
+            <MetricCard label="期望值" value={result.expected_value.toFixed(2)} unit="%" color={result.expected_value > 0 ? "text-emerald-600" : "text-rose-600"} />
+            <MetricCard label="交易次數" value={String(result.trade_count)} unit="次" />
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white px-5 py-4 shadow-sm">
+            <p className="mb-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">本次回測標的（示範資料）</p>
+            <div className="flex flex-wrap gap-2">
+              {result.assets.map(a => <span key={a} className="rounded-md bg-indigo-50 px-3 py-1.5 text-sm font-mono font-semibold text-indigo-700">{a}</span>)}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="rounded-xl border border-slate-100 bg-white py-10 text-center text-sm text-slate-400 shadow-sm">
+          {running ? "執行中，請稍候…" : "選擇模型、版本與區間後執行回測"}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-700">版本比較（近90天）</p>
+          <button type="button" onClick={() => setComparing(v => !v)} className={btnSecondary}>{comparing ? "收起 ▲" : "展開 ▼"}</button>
+        </div>
+        {comparing && (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50"><tr><Th>版本</Th><Th>勝率</Th><Th>平均報酬</Th><Th>最大回撤</Th><Th>期望值</Th><Th>交易次數</Th></tr></thead>
+              <tbody>
+                {compVersions.map(v => {
+                  const r = MOCK_BACKTEST[modelId]?.[v]?.["90d"];
+                  if (!r) return null;
+                  return (
+                    <tr key={v} className={["hover:bg-slate-50/60", v === version ? "bg-indigo-50/30" : ""].join(" ")}>
+                      <Td><span className={["font-mono text-xs px-2 py-0.5 rounded", v === version ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-slate-100 text-slate-600"].join(" ")}>{v}</span></Td>
+                      <Td><span className={r.win_rate >= 60 ? "text-emerald-600 font-semibold" : "text-amber-600"}>{r.win_rate.toFixed(1)}%</span></Td>
+                      <Td className="text-indigo-600 font-semibold">+{r.avg_return.toFixed(1)}%</Td>
+                      <Td className="text-rose-600">{r.max_drawdown.toFixed(1)}%</Td>
+                      <Td className={r.expected_value > 0 ? "text-emerald-600 font-semibold" : "text-rose-600"}>{r.expected_value.toFixed(2)}%</Td>
+                      <Td className="text-slate-600">{r.trade_count} 次</Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Model Performance (mock data) ─────────────────────────────────────────────
+type ModelStatus = "healthy" | "observe" | "adjust" | "disabled";
+const MODEL_STATUS_META: Record<ModelStatus, { label: string; color: string }> = {
+  healthy: { label: "健康", color: "bg-emerald-50 text-emerald-600" },
+  observe: { label: "觀察中", color: "bg-amber-50 text-amber-600" },
+  adjust: { label: "需調整", color: "bg-orange-50 text-orange-600" },
+  disabled: { label: "停用", color: "bg-slate-100 text-slate-400" },
+};
+type PerfRow = {
+  id: string; model: string; version: string; scope: string; scope_type: "market" | "industry" | "asset";
+  win_rate: number; avg_return: number; max_drawdown: number; expected_value: number;
+  updated: string; status: ModelStatus; trend: number[];
+  top_indicators: { name: string; contribution: number; corr: number }[];
+};
+const MOCK_PERFORMANCE: PerfRow[] = [
+  { id: "tech_v21", model: "科技成長模型", version: "v2.1", scope: "台美科技股", scope_type: "asset", win_rate: 65.8, avg_return: 9.1, max_drawdown: -18.2, expected_value: 4.5, updated: "2026-05-31", status: "healthy", trend: [62.1, 63.5, 68.2, 65.8, 66.4, 65.8], top_indicators: [{ name: "費城半導體指數", contribution: 40, corr: 0.82 }, { name: "VIX波動率", contribution: 20, corr: -0.71 }, { name: "納斯達克漲跌幅", contribution: 25, corr: 0.78 }] },
+  { id: "semi_v13", model: "半導體模型", version: "v1.3", scope: "台灣半導體", scope_type: "industry", win_rate: 70.2, avg_return: 11.3, max_drawdown: -15.8, expected_value: 5.8, updated: "2026-05-31", status: "healthy", trend: [65.0, 66.2, 68.5, 70.2, 71.0, 70.2], top_indicators: [{ name: "台指漲跌幅", contribution: 35, corr: 0.75 }, { name: "費城半導體指數", contribution: 35, corr: 0.88 }, { name: "外資買超", contribution: 15, corr: 0.65 }] },
+  { id: "etf_v30", model: "ETF波段模型", version: "v3.0", scope: "大盤ETF", scope_type: "market", win_rate: 58.5, avg_return: 5.2, max_drawdown: -9.4, expected_value: 2.1, updated: "2026-04-30", status: "observe", trend: [61.2, 59.8, 57.4, 58.5, 58.0, 58.5], top_indicators: [{ name: "台指漲跌幅", contribution: 45, corr: 0.70 }, { name: "VIX波動率", contribution: 25, corr: -0.62 }, { name: "成交量變化率", contribution: 20, corr: 0.55 }] },
+];
+
+function ModelPerformanceSection() {
+  const [filterType, setFilterType] = useState<"all" | "market" | "industry" | "asset">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | ModelStatus>("all");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const filtered = MOCK_PERFORMANCE.filter(r => {
+    if (filterType !== "all" && r.scope_type !== filterType) return false;
+    if (filterStatus !== "all" && r.status !== filterStatus) return false;
+    return true;
+  });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap gap-2">
+        <select className={`${inputCls} w-auto`} value={filterType} onChange={e => setFilterType(e.target.value as typeof filterType)}>
+          <option value="all">所有類型</option><option value="market">市場</option><option value="industry">産業</option><option value="asset">標的</option>
+        </select>
+        <select className={`${inputCls} w-auto`} value={filterStatus} onChange={e => setFilterStatus(e.target.value as typeof filterStatus)}>
+          <option value="all">所有狀態</option>
+          {(Object.keys(MODEL_STATUS_META) as ModelStatus[]).map(s => <option key={s} value={s}>{MODEL_STATUS_META[s].label}</option>)}
+        </select>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-100 bg-white shadow-sm">
+        <table className="min-w-full">
+          <thead className="bg-slate-50"><tr><Th>模型</Th><Th>版本</Th><Th>適用範圍</Th><Th>勝率</Th><Th>平均報酬</Th><Th>最大回撤</Th><Th>期望值</Th><Th>最近更新</Th><Th>狀態</Th><Th>詳情</Th></tr></thead>
+          <tbody>
+            {filtered.length === 0 ? <tr><td colSpan={10} className="py-10 text-center text-sm text-slate-400">無符合條件的模型</td></tr>
+              : filtered.map(row => {
+                const st = MODEL_STATUS_META[row.status];
+                return (
+                  <Fragment key={row.id}>
+                    <tr className="hover:bg-slate-50/60">
+                      <Td><span className="font-semibold text-slate-900">{row.model}</span></Td>
+                      <Td><span className="font-mono text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{row.version}</span></Td>
+                      <Td><span className="text-slate-600">{row.scope}</span></Td>
+                      <Td><span className={["font-semibold tabular-nums", row.win_rate >= 65 ? "text-emerald-600" : row.win_rate >= 55 ? "text-amber-600" : "text-rose-600"].join(" ")}>{row.win_rate.toFixed(1)}%</span></Td>
+                      <Td><span className="text-indigo-600 font-semibold">+{row.avg_return.toFixed(1)}%</span></Td>
+                      <Td><span className="text-rose-600">{row.max_drawdown.toFixed(1)}%</span></Td>
+                      <Td><span className={row.expected_value > 0 ? "text-emerald-600 font-semibold" : "text-rose-600"}>{row.expected_value.toFixed(2)}%</span></Td>
+                      <Td><span className="text-xs text-slate-400">{row.updated}</span></Td>
+                      <Td><Badge label={st.label} color={st.color} /></Td>
+                      <Td><button className={btnSecondary} onClick={() => setExpandedId(expandedId === row.id ? null : row.id)} type="button">{expandedId === row.id ? "收起 ▲" : "詳情 ▼"}</button></Td>
+                    </tr>
+                    {expandedId === row.id && (
+                      <tr><td colSpan={10} className="bg-slate-50/60 border-b border-slate-100">
+                        <div className="px-6 py-5 grid gap-5 sm:grid-cols-2">
+                          <div>
+                            <p className="mb-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">近6個月勝率趨勢</p>
+                            <div className="flex items-end gap-1.5 h-16">
+                              {row.trend.map((v, i) => (
+                                <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                                  <div className="w-full rounded-sm bg-indigo-400" style={{ height: `${(v / 100) * 64}px` }} />
+                                  <span className="text-[10px] text-slate-400">{v.toFixed(0)}%</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="mb-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">指標貢獻度與相關性</p>
+                            <div className="flex flex-col gap-2">
+                              {row.top_indicators.map(ind => (
+                                <div key={ind.name} className="flex items-center gap-3">
+                                  <span className="text-sm text-slate-700 w-28 shrink-0 truncate">{ind.name}</span>
+                                  <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-violet-400" style={{ width: `${ind.contribution}%` }} /></div>
+                                  <span className="text-xs tabular-nums text-slate-500 w-8">{ind.contribution}%</span>
+                                  <span className={["text-xs tabular-nums font-medium w-12 text-right", corrColor(ind.corr)].join(" ")}>{ind.corr > 0 ? "+" : ""}{ind.corr.toFixed(2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </td></tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── AnalysisTab (redesigned: 公式管理 / 模型回測 / 模型績效) ─────────────────
 function AnalysisTab({ markets }: { markets: MarketConfig[] }) {
-  const [subTab, setSubTab] = useState<"formula" | "factors" | "report">("formula");
-  const [activeMarketId, setActiveMarketId] = useState<number | null>(null);
+  const [subTab, setSubTab] = useState<"formula" | "backtest" | "performance">("formula");
   const [allIndicators, setAllIndicators] = useState<MarketIndicatorConfig[]>([]);
   const [latestCorrMap, setLatestCorrMap] = useState<Record<string, number | null>>({});
-
-  const activeMarkets = useMemo(() => markets.filter(m => m.is_active), [markets]);
-
-  useEffect(() => {
-    if (activeMarketId === null && activeMarkets.length > 0) setActiveMarketId(activeMarkets[0].id);
-  }, [activeMarkets, activeMarketId]);
 
   const loadCorr = useCallback(() => {
     listIndicatorConfigs().then(r => setAllIndicators(r)).catch(() => {});
@@ -1477,63 +1827,22 @@ function AnalysisTab({ markets }: { markets: MarketConfig[] }) {
 
   useEffect(() => { loadCorr(); }, [loadCorr]);
 
-  const activeMarket = activeMarkets.find(m => m.id === activeMarketId);
-
   const subTabCls = (t: typeof subTab) =>
     ["rounded-lg px-5 py-1.5 text-sm font-medium transition-colors", subTab === t ? "bg-violet-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ");
 
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-xl border border-slate-100 bg-violet-50/50 p-4 text-sm text-slate-600">
-        <strong>分析管理</strong> — 管理計算因子、設定各市場評分公式加權比例，並查閱每月因子相關係數記錄。
+        <strong>公式 / 模型管理</strong> — 設定評分公式加權比例，執行模型回測，並長期追蹤模型績效。
       </div>
-
-      {/* Sub-tabs */}
       <div className="flex gap-1 rounded-xl bg-white border border-slate-100 p-1 shadow-sm w-fit">
         <button type="button" onClick={() => setSubTab("formula")} className={subTabCls("formula")}>公式管理</button>
-        <button type="button" onClick={() => setSubTab("factors")} className={subTabCls("factors")}>因子管理</button>
-        <button type="button" onClick={() => setSubTab("report")} className={subTabCls("report")}>月度報表</button>
+        <button type="button" onClick={() => setSubTab("backtest")} className={subTabCls("backtest")}>模型回測</button>
+        <button type="button" onClick={() => setSubTab("performance")} className={subTabCls("performance")}>模型績效</button>
       </div>
-
-      {/* ── 公式管理: market-name tabs + formula notation ── */}
-      {subTab === "formula" && (
-        <div className="flex flex-col gap-4">
-          {activeMarkets.length === 0 ? (
-            <div className="rounded-xl border border-slate-100 bg-white py-8 text-center text-sm text-slate-400 shadow-sm">請先至「市場管理」新增並啟用市場</div>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-1 rounded-xl bg-white border border-slate-100 p-1 shadow-sm w-fit">
-                {activeMarkets.map(m => (
-                  <button key={m.id} type="button" onClick={() => setActiveMarketId(m.id)}
-                    className={["rounded-lg px-4 py-1.5 text-sm font-medium transition-colors", activeMarketId === m.id ? "bg-indigo-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"].join(" ")}>
-                    {m.name}
-                  </button>
-                ))}
-              </div>
-              {activeMarket && (
-                <MarketFormulaSection
-                  key={activeMarket.id}
-                  marketName={activeMarket.name}
-                  allIndicators={allIndicators}
-                  latestCorrMap={latestCorrMap}
-                />
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── 因子管理: CRUD for indicators + weight + corr + API + market links ── */}
-      {subTab === "factors" && (
-        <FactorManagementSection
-          key="factor-mgmt"
-          allMarkets={markets}
-          latestCorrMap={latestCorrMap}
-        />
-      )}
-
-      {/* ── 月度報表: view-only monthly correlation records ── */}
-      {subTab === "report" && <MonthlyReportSection />}
+      {subTab === "formula" && <FormulaManagementSection allIndicators={allIndicators} latestCorrMap={latestCorrMap} markets={markets} />}
+      {subTab === "backtest" && <ModelBacktestSection />}
+      {subTab === "performance" && <ModelPerformanceSection />}
     </div>
   );
 }
@@ -1852,10 +2161,401 @@ function AccountsTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TAB: Market Analysis (市場分析)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MARKET_STATUS_COLOR: Record<string, string> = {
+  強勢: "bg-green-100 text-green-700",
+  偏多: "bg-emerald-50 text-emerald-600",
+  中性: "bg-slate-100 text-slate-600",
+  偏弱: "bg-amber-100 text-amber-700",
+  弱勢: "bg-red-100 text-red-600",
+};
+
+function MarketAnalysisTab({ markets }: { markets: MarketConfig[] }) {
+  const trackedMarkets = markets.filter(m => m.is_tracked && m.is_active);
+  const [marketCode, setMarketCode] = useState<string>(() => trackedMarkets[0]?.code ?? "TW");
+
+  // Indicator input state
+  const [recordDate, setRecordDate] = useState<string>(() => {
+    const d = new Date(); return d.toISOString().slice(0, 10);
+  });
+  const [indicatorInputs, setIndicatorInputs] = useState<{
+    field_key: string; display_name: string; score: string; raw_value: string; notes: string;
+  }[]>([]);
+  const [loadingIndicators, setLoadingIndicators] = useState(false);
+
+  // Result state
+  const [calcResult, setCalcResult] = useState<MarketScoreResult | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  // Snapshot history
+  const [snapshots, setSnapshots] = useState<MarketScoreSnapshot[]>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+
+  // Validation
+  const [validation, setValidation] = useState<MarketScoreValidation | null>(null);
+  const [valLoading, setValLoading] = useState(false);
+
+  // Return input for snapshot
+  const [returnEditId, setReturnEditId] = useState<number | null>(null);
+  const [returnForm, setReturnForm] = useState({ f5: "", f10: "", f20: "" });
+
+  // Formula items for this market (loaded to build indicator input rows)
+  const [formulas, setFormulas] = useState<{ field_key: string; display_name: string }[]>([]);
+
+  const loadFormulas = useCallback(async (mc: string) => {
+    try {
+      const rows = await listScoreFormulas("market_score", mc);
+      const base = rows.length > 0 ? rows : await listScoreFormulas("market_score");
+      setFormulas(base.map(r => ({ field_key: r.field_key, display_name: r.display_name })));
+    } catch { setFormulas([]); }
+  }, []);
+
+  const loadIndicatorValues = useCallback(async (mc: string, rd: string) => {
+    setLoadingIndicators(true);
+    try {
+      const vals = await getIndicatorDailyValues(mc, rd);
+      setIndicatorInputs(prev => {
+        const valMap = Object.fromEntries(vals.map(v => [v.field_key, v]));
+        return formulas.map(f => {
+          const existing = valMap[f.field_key];
+          return {
+            field_key: f.field_key,
+            display_name: f.display_name,
+            score: existing ? String(existing.score) : "",
+            raw_value: existing?.raw_value != null ? String(existing.raw_value) : "",
+            notes: existing?.notes ?? "",
+          };
+        });
+      });
+    } catch { /* no existing values */ }
+    setLoadingIndicators(false);
+  }, [formulas]);
+
+  const loadSnapshots = useCallback(async (mc: string) => {
+    setSnapshotsLoading(true);
+    try { setSnapshots(await listMarketScoreSnapshots(mc, 30)); } catch { setSnapshots([]); }
+    setSnapshotsLoading(false);
+  }, []);
+
+  const loadValidation = useCallback(async (mc: string) => {
+    setValLoading(true);
+    try { setValidation(await getMarketScoreValidation(mc)); } catch { setValidation(null); }
+    setValLoading(false);
+  }, []);
+
+  // When market or formulas change, reload indicator inputs and snapshots
+  useEffect(() => { loadFormulas(marketCode); }, [marketCode, loadFormulas]);
+  useEffect(() => {
+    if (formulas.length > 0) {
+      setIndicatorInputs(formulas.map(f => ({ field_key: f.field_key, display_name: f.display_name, score: "", raw_value: "", notes: "" })));
+      loadIndicatorValues(marketCode, recordDate);
+    }
+  }, [formulas, marketCode, recordDate, loadIndicatorValues]);
+  useEffect(() => { loadSnapshots(marketCode); loadValidation(marketCode); }, [marketCode, loadSnapshots, loadValidation]);
+
+  // When market changes, reset result
+  useEffect(() => { setCalcResult(null); setStatusMsg(null); }, [marketCode]);
+
+  function setInput(idx: number, field: "score" | "raw_value" | "notes", val: string) {
+    setIndicatorInputs(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+  }
+
+  async function handleSaveInputs() {
+    setSaveLoading(true); setStatusMsg(null);
+    try {
+      const values = indicatorInputs.map(r => ({
+        field_key: r.field_key,
+        display_name: r.display_name,
+        score: parseFloat(r.score) || 50,
+        raw_value: r.raw_value !== "" ? parseFloat(r.raw_value) : null,
+        notes: r.notes || null,
+      }));
+      await saveIndicatorDailyValues(marketCode, recordDate, values);
+      setStatusMsg({ type: "ok", text: "指標數值已儲存" });
+    } catch { setStatusMsg({ type: "err", text: "儲存失敗，請確認登入狀態" }); }
+    setSaveLoading(false);
+  }
+
+  async function handleCalculate() {
+    setCalcLoading(true); setStatusMsg(null); setCalcResult(null);
+    try {
+      const result = await calculateAndSaveMarketScore(marketCode, recordDate, true);
+      setCalcResult(result);
+      setStatusMsg({ type: "ok", text: `計算完成，快照已儲存` });
+      await loadSnapshots(marketCode);
+      await loadValidation(marketCode);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "計算失敗";
+      setStatusMsg({ type: "err", text: msg });
+    }
+    setCalcLoading(false);
+  }
+
+  async function handleSaveReturn(snapshotId: number) {
+    try {
+      await updateSnapshotReturns(snapshotId, {
+        future_return_5d: returnForm.f5 !== "" ? parseFloat(returnForm.f5) : undefined,
+        future_return_10d: returnForm.f10 !== "" ? parseFloat(returnForm.f10) : undefined,
+        future_return_20d: returnForm.f20 !== "" ? parseFloat(returnForm.f20) : undefined,
+      });
+      setReturnEditId(null);
+      await loadSnapshots(marketCode);
+      await loadValidation(marketCode);
+    } catch { /* noop */ }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Market selector */}
+      <div className="flex flex-wrap gap-2">
+        {(trackedMarkets.length > 0 ? trackedMarkets : [{ code: "TW", name: "台灣" }, { code: "US", name: "美國" }]).map(m => (
+          <button key={m.code} type="button" onClick={() => setMarketCode(m.code)}
+            className={["rounded-lg px-4 py-2 text-sm font-medium transition-colors", marketCode === m.code ? "bg-indigo-500 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"].join(" ")}>
+            {m.name} ({m.code})
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left: Indicator input */}
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <h3 className="text-sm font-semibold text-slate-800">指標分數輸入</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">日期</span>
+                <input type="date" value={recordDate} onChange={e => setRecordDate(e.target.value)}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs focus:outline-none focus:border-indigo-400" />
+              </div>
+              <button type="button" onClick={() => loadIndicatorValues(marketCode, recordDate)}
+                className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50">
+                重新載入
+              </button>
+            </div>
+            {loadingIndicators ? (
+              <p className="text-xs text-slate-400">載入中…</p>
+            ) : indicatorInputs.length === 0 ? (
+              <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
+                尚未設定市場公式指標。請先至「分析管理 → 公式管理」新增 {marketCode} 市場分數公式項目。
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <Th>指標名稱</Th>
+                      <Th>分數 (0-100)</Th>
+                      <Th>原始數值</Th>
+                      <Th>備註</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {indicatorInputs.map((row, i) => (
+                      <tr key={row.field_key} className="border-b border-slate-50">
+                        <Td><span className="font-medium text-slate-700">{row.display_name}</span><br /><span className="text-slate-400">{row.field_key}</span></Td>
+                        <Td>
+                          <input
+                            type="number" min={0} max={100} step={0.1}
+                            value={row.score}
+                            onChange={e => setInput(i, "score", e.target.value)}
+                            placeholder="0-100"
+                            className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs focus:outline-none focus:border-indigo-400"
+                          />
+                        </Td>
+                        <Td>
+                          <input
+                            type="number" step="any"
+                            value={row.raw_value}
+                            onChange={e => setInput(i, "raw_value", e.target.value)}
+                            placeholder="選填"
+                            className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs focus:outline-none focus:border-indigo-400"
+                          />
+                        </Td>
+                        <Td>
+                          <input
+                            type="text"
+                            value={row.notes}
+                            onChange={e => setInput(i, "notes", e.target.value)}
+                            placeholder="備註"
+                            className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs focus:outline-none focus:border-indigo-400"
+                          />
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" onClick={handleSaveInputs} disabled={saveLoading || indicatorInputs.length === 0}
+                className={btnSecondary + " text-xs px-3 py-1.5"}>
+                {saveLoading ? "儲存中…" : "儲存指標數值"}
+              </button>
+              <button type="button" onClick={handleCalculate} disabled={calcLoading || indicatorInputs.length === 0}
+                className={btnPrimary + " text-xs px-3 py-1.5"}>
+                {calcLoading ? "計算中…" : "計算並儲存分數"}
+              </button>
+            </div>
+            {statusMsg && (
+              <div className={["mt-3 rounded-lg px-3 py-2 text-xs", statusMsg.type === "ok" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"].join(" ")}>
+                {statusMsg.text}
+              </div>
+            )}
+          </div>
+
+          {/* Calculation result */}
+          {calcResult && (
+            <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+              <div className="mb-3 flex items-center gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">計算結果</h3>
+                <span className={["rounded-full px-3 py-0.5 text-sm font-bold", MARKET_STATUS_COLOR[calcResult.status] ?? "bg-slate-100 text-slate-600"].join(" ")}>
+                  {calcResult.score} — {calcResult.status}
+                </span>
+                <span className="text-xs text-slate-400">權重總和 {calcResult.total_weight}%</span>
+                {Math.abs(calcResult.total_weight - 100) > 5 && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">⚠ 已自動補正</span>
+                )}
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <Th>指標</Th>
+                    <Th>原始分</Th>
+                    <Th>方向</Th>
+                    <Th>有效分</Th>
+                    <Th>權重%</Th>
+                    <Th>貢獻</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {calcResult.breakdown.map(b => (
+                    <tr key={b.field_key} className="border-b border-slate-50">
+                      <Td><span className="font-medium">{b.display_name}</span></Td>
+                      <Td>{b.raw_score}</Td>
+                      <Td>{b.is_reverse ? <span className="text-rose-500">反向</span> : <span className="text-emerald-600">正向</span>}</Td>
+                      <Td>{b.score}</Td>
+                      <Td>{b.weight}</Td>
+                      <Td><span className="font-medium text-indigo-600">{b.contribution}</span></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Validation stats */}
+        <div className="flex flex-col gap-4">
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-slate-800">預測驗證統計</h3>
+            {valLoading ? <p className="text-xs text-slate-400">載入中…</p> : validation ? (
+              <div className="flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-slate-50 p-3 text-center">
+                    <p className="text-xs text-slate-500">樣本數</p>
+                    <p className="text-xl font-bold text-slate-800">{validation.total}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 text-center">
+                    <p className="text-xs text-slate-500">命中率</p>
+                    <p className={["text-xl font-bold", (validation.hit_rate ?? 0) >= 60 ? "text-green-600" : "text-amber-600"].join(" ")}>
+                      {validation.hit_rate != null ? `${validation.hit_rate}%` : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 text-center">
+                    <p className="text-xs text-slate-500">相關係數</p>
+                    <p className={["text-xl font-bold", (validation.correlation ?? 0) >= 0.4 ? "text-indigo-600" : "text-slate-500"].join(" ")}>
+                      {validation.correlation != null ? validation.correlation : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 text-center">
+                    <p className="text-xs text-slate-500">命中次數</p>
+                    <p className="text-xl font-bold text-slate-800">{validation.hit_count}</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400">{"命中 = 分數≥80且20日回報>0，或分數<80且回報≤0"}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">尚無驗證資料（需填寫快照的實際回報後顯示）</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Snapshot history */}
+      <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <h3 className="mb-3 text-sm font-semibold text-slate-800">歷史快照（最近30筆）</h3>
+        {snapshotsLoading ? <p className="text-xs text-slate-400">載入中…</p> : snapshots.length === 0 ? (
+          <p className="text-xs text-slate-400">尚無快照記錄</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <Th>日期</Th>
+                  <Th>分數</Th>
+                  <Th>狀態</Th>
+                  <Th>5日報酬%</Th>
+                  <Th>10日報酬%</Th>
+                  <Th>20日報酬%</Th>
+                  <Th>命中</Th>
+                  <Th>操作</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshots.map(s => (
+                  <Fragment key={s.id}>
+                    <tr className="border-b border-slate-50 hover:bg-slate-50">
+                      <Td>{s.record_date}</Td>
+                      <Td><span className="font-bold text-indigo-600">{s.score}</span></Td>
+                      <Td><span className={["rounded-full px-2 py-0.5 text-xs font-medium", MARKET_STATUS_COLOR[s.status] ?? "bg-slate-100 text-slate-500"].join(" ")}>{s.status}</span></Td>
+                      <Td>{s.future_return_5d != null ? `${s.future_return_5d}%` : "—"}</Td>
+                      <Td>{s.future_return_10d != null ? `${s.future_return_10d}%` : "—"}</Td>
+                      <Td>{s.future_return_20d != null ? `${s.future_return_20d}%` : "—"}</Td>
+                      <Td>
+                        {s.is_hit === null ? <span className="text-slate-300">—</span>
+                          : s.is_hit ? <span className="text-green-600 font-medium">✓</span>
+                          : <span className="text-red-500">✗</span>}
+                      </Td>
+                      <Td>
+                        <button type="button" onClick={() => { setReturnEditId(returnEditId === s.id ? null : s.id); setReturnForm({ f5: String(s.future_return_5d ?? ""), f10: String(s.future_return_10d ?? ""), f20: String(s.future_return_20d ?? "") }); }}
+                          className="rounded px-2 py-0.5 text-xs border border-slate-200 text-slate-600 hover:bg-slate-50">
+                          填回報
+                        </button>
+                      </Td>
+                    </tr>
+                    {returnEditId === s.id && (
+                      <tr className="bg-indigo-50/40">
+                        <td colSpan={8} className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-3 text-xs">
+                            <label className="flex items-center gap-1">5日 <input type="number" step="0.01" value={returnForm.f5} onChange={e => setReturnForm(p => ({...p, f5: e.target.value}))} className="w-16 rounded border border-slate-200 px-1 py-0.5 focus:outline-none" /></label>
+                            <label className="flex items-center gap-1">10日 <input type="number" step="0.01" value={returnForm.f10} onChange={e => setReturnForm(p => ({...p, f10: e.target.value}))} className="w-16 rounded border border-slate-200 px-1 py-0.5 focus:outline-none" /></label>
+                            <label className="flex items-center gap-1">20日 <input type="number" step="0.01" value={returnForm.f20} onChange={e => setReturnForm(p => ({...p, f20: e.target.value}))} className="w-16 rounded border border-slate-200 px-1 py-0.5 focus:outline-none" /></label>
+                            <button type="button" onClick={() => handleSaveReturn(s.id)} className={btnPrimary + " text-xs px-2 py-0.5"}>儲存</button>
+                            <button type="button" onClick={() => setReturnEditId(null)} className={btnSecondary + " text-xs px-2 py-0.5"}>取消</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Root page
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TABS = ["markets", "industries", "stocks", "asset_roles", "asset_types", "indicators", "analysis", "api", "accounts", "permissions"] as const;
+const TABS = ["markets", "industries", "stocks", "asset_roles", "asset_types", "indicators", "analysis", "market_analysis", "api", "accounts", "permissions"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   markets: "市場管理",
@@ -1865,6 +2565,7 @@ const TAB_LABELS: Record<Tab, string> = {
   asset_types: "資產管理",
   indicators: "市場指標",
   analysis: "分析管理",
+  market_analysis: "市場分析",
   api: "API管理",
   accounts: "帳號管理",
   permissions: "權限管理",
@@ -1925,6 +2626,7 @@ export default function AdminPage() {
         {tab === "asset_types" && <AssetTypesTab onReload={setAssetTypes} />}
         {tab === "indicators" && <IndicatorsTab />}
         {tab === "analysis" && <AnalysisTab markets={markets} />}
+        {tab === "market_analysis" && <MarketAnalysisTab markets={markets} />}
         {tab === "api" && <ApiConfigTab />}
         {tab === "accounts" && <AccountsTab />}
         {tab === "permissions" && <PermissionsTab />}

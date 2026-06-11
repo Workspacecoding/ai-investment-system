@@ -47,6 +47,7 @@ class ScoreFormulaResponse(BaseModel):
     weight: float
     is_active: bool
     use_in_calc: bool
+    is_reverse: bool = False
     display_order: int
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,6 +59,7 @@ class ScoreFormulaCreate(BaseModel):
     weight: float = 0.0
     is_active: bool = True
     use_in_calc: bool = True
+    is_reverse: bool = False
     display_order: int = 0
 
 
@@ -66,6 +68,7 @@ class ScoreFormulaUpdate(BaseModel):
     weight: float | None = None
     is_active: bool | None = None
     use_in_calc: bool | None = None
+    is_reverse: bool | None = None
     display_order: int | None = None
 
 

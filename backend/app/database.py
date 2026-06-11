@@ -17,7 +17,11 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_recycle=3600,   # recycle connections older than 1 hour (before MySQL kills them)
+    pool_pre_ping=True,  # test connection before use; reconnects automatically if stale
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

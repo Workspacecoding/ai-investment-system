@@ -13,6 +13,8 @@ import app.models.industry_indicator_link  # noqa: F401
 import app.models.market_config  # noqa: F401
 import app.models.market_config_indicator_link  # noqa: F401
 import app.models.market_indicator_config  # noqa: F401
+import app.models.indicator_daily_value  # noqa: F401
+import app.models.market_score_snapshot  # noqa: F401
 import app.models.role_config  # noqa: F401
 import app.models.score_formula  # noqa: F401
 from app.routers.auth import router as auth_router
@@ -36,6 +38,7 @@ from app.routers.settings import router as settings_router
 from app.routers.swing_trade import router as swing_trade_router
 from app.routers.trade_plans import router as trade_plans_router
 from app.routers.admin import router as admin_router
+from app.routers.market_analysis import router as market_analysis_router
 from app.routers.swing_recommend import router as swing_recommend_router
 from app.routers.universe import router as universe_router
 
@@ -60,6 +63,8 @@ def _run_column_migrations() -> None:
         "ALTER TABLE assets ADD COLUMN in_swing_pool TINYINT(1) NOT NULL DEFAULT 0",
         "ALTER TABLE assets ADD COLUMN in_newsletter TINYINT(1) NOT NULL DEFAULT 0",
         "ALTER TABLE assets ADD COLUMN needs_backtest TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE score_formulas ADD COLUMN is_reverse TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE score_formulas ADD COLUMN market_code VARCHAR(20) NULL",
     ]
     with engine.connect() as conn:
         for sql in migration_sqls:
@@ -124,6 +129,7 @@ app.include_router(portfolio_optimization_router)
 app.include_router(backtesting_router)
 app.include_router(daily_reports_router)
 app.include_router(admin_router)
+app.include_router(market_analysis_router)
 app.include_router(swing_recommend_router)
 
 

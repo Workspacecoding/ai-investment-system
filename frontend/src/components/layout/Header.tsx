@@ -33,7 +33,7 @@ function AlphaLensLogo() {
 const navLinks = [
   { href: "/dashboard", label: "儀表板", exact: true },
   { href: "/dashboard/watchlist", label: "自選股", exact: false },
-  { href: "/dashboard/swing-center", label: "波段", exact: false },
+  { href: "/dashboard/swing-center", label: "交易計畫", exact: false },
   { href: "/dashboard/portfolio", label: "投資組合", exact: false },
   { href: "/dashboard/goal-planner", label: "目標", exact: false },
   { href: "/dashboard/reports", label: "報表", exact: false },

@@ -325,23 +325,28 @@ export async function setMarketIndicators(market_id: number, indicator_ids: numb
 export type ScoreFormula = {
   id: number;
   formula_type: string;
+  market_code: string | null;
   field_key: string;
   display_name: string;
   weight: number;
   is_active: boolean;
   use_in_calc: boolean;
+  is_reverse: boolean;
   display_order: number;
 };
 
-export async function listScoreFormulas(formula_type?: string): Promise<ScoreFormula[]> {
-  return (await apiClient.get<ScoreFormula[]>("/admin/score-formulas", { params: formula_type ? { formula_type } : {} })).data;
+export async function listScoreFormulas(formula_type?: string, market_code?: string | null): Promise<ScoreFormula[]> {
+  const params: Record<string, string> = {};
+  if (formula_type) params.formula_type = formula_type;
+  if (market_code !== undefined && market_code !== null) params.market_code = market_code;
+  return (await apiClient.get<ScoreFormula[]>("/admin/score-formulas", { params })).data;
 }
 
 export async function createScoreFormula(p: Omit<ScoreFormula, "id">): Promise<ScoreFormula> {
   return (await apiClient.post<ScoreFormula>("/admin/score-formulas", p)).data;
 }
 
-export async function updateScoreFormula(id: number, p: Partial<Pick<ScoreFormula, "display_name" | "weight" | "is_active" | "use_in_calc" | "display_order">>): Promise<ScoreFormula> {
+export async function updateScoreFormula(id: number, p: Partial<Pick<ScoreFormula, "display_name" | "weight" | "is_active" | "use_in_calc" | "is_reverse" | "display_order" | "market_code">>): Promise<ScoreFormula> {
   return (await apiClient.put<ScoreFormula>(`/admin/score-formulas/${id}`, p)).data;
 }
 
@@ -570,4 +575,106 @@ export async function setAssetRoleLinks(assetId: number, roleIds: number[]): Pro
 
 export async function listSwingRecommendations(params?: { user_id?: number; limit?: number }): Promise<SwingRecommendation[]> {
   return (await apiClient.get<SwingRecommendation[]>("/swing-recommend/recommendations", { params })).data;
+}
+
+// ── Market Analysis (Phase 1 MVP) ─────────────────────────────────────────────
+
+export type IndicatorDailyValue = {
+  id: number;
+  record_date: string;
+  market_code: string;
+  field_key: string;
+  display_name: string;
+  score: number;
+  raw_value: number | null;
+  notes: string | null;
+};
+
+export type MarketScoreBreakdownItem = {
+  field_key: string;
+  display_name: string;
+  score: number;
+  raw_score: number;
+  weight: number;
+  contribution: number;
+  is_reverse: boolean;
+};
+
+export type MarketScoreResult = {
+  score: number;
+  status: string;
+  breakdown: MarketScoreBreakdownItem[];
+  total_weight: number;
+};
+
+export type MarketScoreSnapshot = {
+  id: number;
+  record_date: string;
+  market_code: string;
+  score: number;
+  status: string;
+  breakdown: MarketScoreBreakdownItem[] | null;
+  formula_version: string | null;
+  future_return_5d: number | null;
+  future_return_10d: number | null;
+  future_return_20d: number | null;
+  is_hit: boolean | null;
+};
+
+export type MarketScoreValidation = {
+  total: number;
+  hit_count: number;
+  hit_rate: number;
+  avg_error: number | null;
+  max_error: number | null;
+  correlation: number | null;
+};
+
+export async function getIndicatorDailyValues(
+  market_code: string,
+  record_date?: string,
+): Promise<IndicatorDailyValue[]> {
+  const params: Record<string, string> = {};
+  if (record_date) params.record_date = record_date;
+  return (await apiClient.get<IndicatorDailyValue[]>(`/market-analysis/${market_code}/indicator-values`, { params })).data;
+}
+
+export async function saveIndicatorDailyValues(
+  market_code: string,
+  record_date: string,
+  values: Omit<IndicatorDailyValue, "id" | "record_date" | "market_code">[],
+): Promise<IndicatorDailyValue[]> {
+  return (await apiClient.post<IndicatorDailyValue[]>(`/market-analysis/${market_code}/indicator-values`, {
+    record_date,
+    values,
+  })).data;
+}
+
+export async function calculateAndSaveMarketScore(
+  market_code: string,
+  record_date: string,
+  save_snapshot = true,
+): Promise<MarketScoreResult> {
+  return (await apiClient.post<MarketScoreResult>(`/market-analysis/${market_code}/calculate`, {
+    record_date,
+    save_snapshot,
+  })).data;
+}
+
+export async function listMarketScoreSnapshots(
+  market_code: string,
+  limit = 90,
+): Promise<MarketScoreSnapshot[]> {
+  return (await apiClient.get<MarketScoreSnapshot[]>(`/market-analysis/${market_code}/snapshots`, { params: { limit } })).data;
+}
+
+export async function updateSnapshotReturns(
+  snapshot_id: number,
+  returns: { future_return_5d?: number; future_return_10d?: number; future_return_20d?: number },
+): Promise<MarketScoreSnapshot> {
+  return (await apiClient.put<MarketScoreSnapshot>(`/market-analysis/snapshots/${snapshot_id}/returns`, returns)).data;
+}
+
+export async function getMarketScoreValidation(market_code: string): Promise<MarketScoreValidation> {
+  return (await apiClient.get<MarketScoreValidation>(`/market-analysis/${market_code}/validation`)).data;
 }
