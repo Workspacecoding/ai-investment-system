@@ -25,6 +25,10 @@ class IndustryResponse(BaseModel):
     module_result_indicator_ids: list[int] | None = None
     module_formula_expr: str | None = None
     module_validation_conditions: str | None = None
+    crawler_enabled: bool = False
+    crawler_start_time: datetime | None = None
+    crawler_stop_time: datetime | None = None
+    crawler_years: int = 10
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

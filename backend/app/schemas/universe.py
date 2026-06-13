@@ -41,6 +41,13 @@ class AssetResponse(BaseModel):
     data_sync_enabled: bool = False
     last_price_synced_at: datetime | None = None
     current_model_id: int | None = None
+    position_model_id: int | None = None
+    analysis_model_id: int | None = None
+    crawler_enabled: bool = False
+    crawler_start_time: datetime | None = None
+    crawler_stop_time: datetime | None = None
+    crawler_indicator_ids: list[int] | None = None
+    crawler_years: int = 10
     module_calc_indicator_ids: list[int] | None = None
     module_validation_asset_ids: list[int] | None = None
     module_validation_indicator_ids: list[int] | None = None

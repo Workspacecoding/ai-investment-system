@@ -1,4 +1,8 @@
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -112,6 +116,8 @@ from app.services.admin_service import (
 )
 from app.services.industry_service import create_industry, list_industries
 from app.services.universe_service import create_asset
+from app.models.asset_crawler_indicator import AssetCrawlerIndicator
+from pydantic import ConfigDict as PydanticConfigDict
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -900,3 +906,537 @@ def delete_analysis_model(
     m = db.query(AnalysisModel).filter(AnalysisModel.id == model_id).first()
     if m:
         db.delete(m); db.commit()
+
+
+# ─── Crawler ──────────────────────────────────────────────────────────────────
+
+from app.models.asset import Asset as AssetModel
+from app.models.asset_daily_data import AssetDailyData
+
+
+class CrawlerConfigUpdate(BaseModel):
+    crawler_enabled: Optional[bool] = None
+    crawler_indicator_ids: Optional[list[int]] = None
+    crawler_years: Optional[int] = None
+
+
+class AssetDailyDataCreate(BaseModel):
+    record_date: str          # "YYYY-MM-DD"
+    field_key: str
+    display_name: str
+    category: Optional[str] = None
+    value: Optional[float] = None
+    raw_text: Optional[str] = None
+    source: Optional[str] = "manual"
+    notes: Optional[str] = None
+
+
+class AssetDailyDataResponse(BaseModel):
+    id: int
+    asset_id: int
+    record_date: str
+    field_key: str
+    display_name: str
+    category: Optional[str] = None
+    value: Optional[float] = None
+    raw_text: Optional[str] = None
+    source: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/assets/{asset_id}/crawler/data", response_model=dict)
+def list_crawler_data(
+    asset_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    field_key: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    q = db.query(AssetDailyData).filter(AssetDailyData.asset_id == asset_id)
+    if field_key:
+        q = q.filter(AssetDailyData.field_key == field_key)
+    total = q.count()
+    rows = q.order_by(AssetDailyData.record_date.desc()).offset(skip).limit(limit).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": r.id, "asset_id": r.asset_id,
+                "record_date": str(r.record_date), "field_key": r.field_key,
+                "display_name": r.display_name, "category": r.category,
+                "value": r.value, "raw_text": r.raw_text,
+                "source": r.source, "notes": r.notes,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/assets/{asset_id}/crawler/data", status_code=status.HTTP_201_CREATED)
+def add_crawler_data(
+    asset_id: int,
+    body: AssetDailyDataCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from datetime import date
+    record = AssetDailyData(
+        asset_id=asset_id,
+        record_date=date.fromisoformat(body.record_date),
+        field_key=body.field_key,
+        display_name=body.display_name,
+        category=body.category,
+        value=body.value,
+        raw_text=body.raw_text,
+        source=body.source or "manual",
+        notes=body.notes,
+    )
+    db.add(record); db.commit(); db.refresh(record)
+    return {"id": record.id, "record_date": str(record.record_date), "field_key": record.field_key,
+            "display_name": record.display_name, "category": record.category,
+            "value": record.value, "source": record.source}
+
+
+@router.delete("/assets/{asset_id}/crawler/data/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_crawler_data(
+    asset_id: int,
+    record_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    r = db.query(AssetDailyData).filter(AssetDailyData.id == record_id, AssetDailyData.asset_id == asset_id).first()
+    if r:
+        db.delete(r); db.commit()
+
+
+@router.post("/assets/{asset_id}/crawler/start", status_code=status.HTTP_200_OK)
+def start_crawler(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    asset = db.query(AssetModel).filter(AssetModel.id == asset_id).first()
+    if not asset:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Asset not found")
+    asset.crawler_enabled = True
+    asset.crawler_start_time = datetime.now(timezone.utc)
+    asset.crawler_stop_time = None
+    db.commit(); db.refresh(asset)
+    return {"crawler_enabled": asset.crawler_enabled,
+            "crawler_start_time": asset.crawler_start_time.isoformat() if asset.crawler_start_time else None}
+
+
+@router.post("/assets/{asset_id}/crawler/stop", status_code=status.HTTP_200_OK)
+def stop_crawler(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    asset = db.query(AssetModel).filter(AssetModel.id == asset_id).first()
+    if not asset:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Asset not found")
+    asset.crawler_enabled = False
+    asset.crawler_stop_time = datetime.now(timezone.utc)
+    db.commit(); db.refresh(asset)
+    return {"crawler_enabled": asset.crawler_enabled,
+            "crawler_stop_time": asset.crawler_stop_time.isoformat() if asset.crawler_stop_time else None}
+
+
+@router.put("/assets/{asset_id}/crawler/config", status_code=status.HTTP_200_OK)
+def update_crawler_config(
+    asset_id: int,
+    body: CrawlerConfigUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    asset = db.query(AssetModel).filter(AssetModel.id == asset_id).first()
+    if not asset:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if body.crawler_indicator_ids is not None:
+        asset.crawler_indicator_ids = body.crawler_indicator_ids
+    if body.crawler_years is not None:
+        asset.crawler_years = body.crawler_years
+    db.commit(); db.refresh(asset)
+    return {
+        "crawler_indicator_ids": asset.crawler_indicator_ids,
+        "crawler_years": asset.crawler_years,
+    }
+
+
+# ── Per-indicator Crawler Config ──────────────────────────────────────────────
+
+class AssetCrawlerIndicatorCreate(BaseModel):
+    indicator_id: Optional[int] = None
+    indicator_name: str
+    indicator_type: Optional[str] = None
+    api_source_id: Optional[int] = None
+    is_enabled: bool = True
+    auto_crawl_enabled: bool = False
+    manual_crawl_enabled: bool = True
+    crawl_frequency: Optional[str] = None
+    crawl_time: Optional[str] = None
+
+
+class AssetCrawlerIndicatorUpdate(BaseModel):
+    indicator_name: Optional[str] = None
+    indicator_type: Optional[str] = None
+    api_source_id: Optional[int] = None
+    is_enabled: Optional[bool] = None
+    auto_crawl_enabled: Optional[bool] = None
+    manual_crawl_enabled: Optional[bool] = None
+    crawl_frequency: Optional[str] = None
+    crawl_time: Optional[str] = None
+    crawl_status: Optional[str] = None
+    error_message: Optional[str] = None
+    last_crawled_at: Optional[datetime] = None
+    next_crawl_at: Optional[datetime] = None
+    last_manual_crawled_at: Optional[datetime] = None
+
+
+class AssetCrawlerIndicatorResponse(BaseModel):
+    id: int
+    asset_id: int
+    indicator_id: Optional[int]
+    indicator_name: str
+    indicator_type: Optional[str]
+    api_source_id: Optional[int]
+    is_enabled: bool
+    auto_crawl_enabled: bool
+    manual_crawl_enabled: bool
+    crawl_frequency: Optional[str]
+    crawl_time: Optional[str]
+    last_crawled_at: Optional[datetime]
+    next_crawl_at: Optional[datetime]
+    last_manual_crawled_at: Optional[datetime]
+    crawl_status: str
+    error_message: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = PydanticConfigDict(from_attributes=True)
+
+
+@router.get("/assets/{asset_id}/crawler/indicators", response_model=list[AssetCrawlerIndicatorResponse])
+def list_crawler_indicators(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    return db.query(AssetCrawlerIndicator).filter(AssetCrawlerIndicator.asset_id == asset_id).all()
+
+
+@router.post("/assets/{asset_id}/crawler/indicators", response_model=AssetCrawlerIndicatorResponse, status_code=status.HTTP_201_CREATED)
+def add_crawler_indicator(
+    asset_id: int,
+    body: AssetCrawlerIndicatorCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HTTPException
+    existing = db.query(AssetCrawlerIndicator).filter(
+        AssetCrawlerIndicator.asset_id == asset_id,
+        AssetCrawlerIndicator.indicator_id == body.indicator_id,
+    ).first()
+    if existing and body.indicator_id is not None:
+        raise _HTTPException(status_code=409, detail="Indicator already configured for this asset")
+    row = AssetCrawlerIndicator(asset_id=asset_id, **body.model_dump())
+    db.add(row); db.commit(); db.refresh(row)
+    return row
+
+
+@router.put("/assets/{asset_id}/crawler/indicators/{config_id}", response_model=AssetCrawlerIndicatorResponse)
+def update_crawler_indicator(
+    asset_id: int,
+    config_id: int,
+    body: AssetCrawlerIndicatorUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HTTPException
+    row = db.query(AssetCrawlerIndicator).filter(
+        AssetCrawlerIndicator.id == config_id,
+        AssetCrawlerIndicator.asset_id == asset_id,
+    ).first()
+    if not row:
+        raise _HTTPException(status_code=404, detail="Config not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(row, k, v)
+    db.commit(); db.refresh(row)
+    return row
+
+
+@router.delete("/assets/{asset_id}/crawler/indicators/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_crawler_indicator(
+    asset_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HTTPException
+    row = db.query(AssetCrawlerIndicator).filter(
+        AssetCrawlerIndicator.id == config_id,
+        AssetCrawlerIndicator.asset_id == asset_id,
+    ).first()
+    if not row:
+        raise _HTTPException(status_code=404, detail="Config not found")
+    db.delete(row); db.commit()
+
+
+@router.post("/assets/{asset_id}/crawler/indicators/{config_id}/crawl-now", response_model=AssetCrawlerIndicatorResponse)
+def crawl_indicator_now(
+    asset_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HTTPException
+    row = db.query(AssetCrawlerIndicator).filter(
+        AssetCrawlerIndicator.id == config_id,
+        AssetCrawlerIndicator.asset_id == asset_id,
+    ).first()
+    if not row:
+        raise _HTTPException(status_code=404, detail="Config not found")
+    if not row.is_enabled:
+        raise _HTTPException(status_code=400, detail="Indicator not enabled")
+    if not row.manual_crawl_enabled:
+        raise _HTTPException(status_code=400, detail="Manual crawl not enabled for this indicator")
+    now = datetime.now(timezone.utc)
+    row.crawl_status = "running"
+    db.commit()
+    # Simulate crawl completion (real implementation would queue a task)
+    row.crawl_status = "success"
+    row.last_crawled_at = now
+    row.last_manual_crawled_at = now
+    db.commit(); db.refresh(row)
+    return row
+
+
+@router.post("/assets/{asset_id}/crawler/indicators/{config_id}/stop", response_model=AssetCrawlerIndicatorResponse)
+def stop_crawler_indicator(
+    asset_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HTTPException
+    row = db.query(AssetCrawlerIndicator).filter(
+        AssetCrawlerIndicator.id == config_id,
+        AssetCrawlerIndicator.asset_id == asset_id,
+    ).first()
+    if not row:
+        raise _HTTPException(status_code=404, detail="Config not found")
+    row.auto_crawl_enabled = False
+    row.manual_crawl_enabled = False
+    row.crawl_status = "stopped"
+    db.commit(); db.refresh(row)
+    return row
+
+
+# ── Generic Scope Crawler (market / industry) ─────────────────────────────────
+
+from app.models.crawler_indicator_config import CrawlerIndicatorConfig
+from app.models.market_config import MarketConfig as MarketConfigModel
+from app.models.industry import Industry as IndustryModel
+
+VALID_SCOPES = {"market", "industry"}
+
+
+def _get_scope_entity(scope_type: str, scope_id: int, db: Session):
+    from fastapi import HTTPException as _HE
+    if scope_type == "market":
+        obj = db.query(MarketConfigModel).filter(MarketConfigModel.id == scope_id).first()
+    elif scope_type == "industry":
+        obj = db.query(IndustryModel).filter(IndustryModel.id == scope_id).first()
+    else:
+        raise _HE(status_code=400, detail=f"Invalid scope_type: {scope_type}")
+    if not obj:
+        raise _HE(status_code=404, detail=f"{scope_type} {scope_id} not found")
+    return obj
+
+
+@router.get("/crawler/{scope_type}/{scope_id}/indicators", response_model=list[AssetCrawlerIndicatorResponse])
+def list_scope_crawler_indicators(
+    scope_type: str,
+    scope_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HE
+    if scope_type not in VALID_SCOPES:
+        raise _HE(status_code=400, detail="Invalid scope_type")
+    return db.query(CrawlerIndicatorConfig).filter(
+        CrawlerIndicatorConfig.scope_type == scope_type,
+        CrawlerIndicatorConfig.scope_id == scope_id,
+    ).all()
+
+
+@router.post("/crawler/{scope_type}/{scope_id}/indicators", response_model=AssetCrawlerIndicatorResponse, status_code=status.HTTP_201_CREATED)
+def add_scope_crawler_indicator(
+    scope_type: str,
+    scope_id: int,
+    body: AssetCrawlerIndicatorCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HE
+    if scope_type not in VALID_SCOPES:
+        raise _HE(status_code=400, detail="Invalid scope_type")
+    if body.indicator_id is not None:
+        existing = db.query(CrawlerIndicatorConfig).filter(
+            CrawlerIndicatorConfig.scope_type == scope_type,
+            CrawlerIndicatorConfig.scope_id == scope_id,
+            CrawlerIndicatorConfig.indicator_id == body.indicator_id,
+        ).first()
+        if existing:
+            raise _HE(status_code=409, detail="Indicator already configured for this scope")
+    row = CrawlerIndicatorConfig(scope_type=scope_type, scope_id=scope_id, **body.model_dump())
+    db.add(row); db.commit(); db.refresh(row)
+    return row
+
+
+@router.put("/crawler/{scope_type}/{scope_id}/indicators/{config_id}", response_model=AssetCrawlerIndicatorResponse)
+def update_scope_crawler_indicator(
+    scope_type: str,
+    scope_id: int,
+    config_id: int,
+    body: AssetCrawlerIndicatorUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HE
+    row = db.query(CrawlerIndicatorConfig).filter(
+        CrawlerIndicatorConfig.id == config_id,
+        CrawlerIndicatorConfig.scope_type == scope_type,
+        CrawlerIndicatorConfig.scope_id == scope_id,
+    ).first()
+    if not row:
+        raise _HE(status_code=404, detail="Config not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(row, k, v)
+    db.commit(); db.refresh(row)
+    return row
+
+
+@router.delete("/crawler/{scope_type}/{scope_id}/indicators/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_scope_crawler_indicator(
+    scope_type: str,
+    scope_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HE
+    row = db.query(CrawlerIndicatorConfig).filter(
+        CrawlerIndicatorConfig.id == config_id,
+        CrawlerIndicatorConfig.scope_type == scope_type,
+        CrawlerIndicatorConfig.scope_id == scope_id,
+    ).first()
+    if not row:
+        raise _HE(status_code=404, detail="Config not found")
+    db.delete(row); db.commit()
+
+
+@router.post("/crawler/{scope_type}/{scope_id}/indicators/{config_id}/crawl-now", response_model=AssetCrawlerIndicatorResponse)
+def crawl_scope_indicator_now(
+    scope_type: str,
+    scope_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HE
+    row = db.query(CrawlerIndicatorConfig).filter(
+        CrawlerIndicatorConfig.id == config_id,
+        CrawlerIndicatorConfig.scope_type == scope_type,
+        CrawlerIndicatorConfig.scope_id == scope_id,
+    ).first()
+    if not row:
+        raise _HE(status_code=404, detail="Config not found")
+    if not row.is_enabled:
+        raise _HE(status_code=400, detail="Indicator not enabled")
+    if not row.manual_crawl_enabled:
+        raise _HE(status_code=400, detail="Manual crawl not enabled")
+    now = datetime.now(timezone.utc)
+    row.crawl_status = "success"
+    row.last_crawled_at = now
+    row.last_manual_crawled_at = now
+    db.commit(); db.refresh(row)
+    return row
+
+
+@router.post("/crawler/{scope_type}/{scope_id}/indicators/{config_id}/stop", response_model=AssetCrawlerIndicatorResponse)
+def stop_scope_crawler_indicator(
+    scope_type: str,
+    scope_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from fastapi import HTTPException as _HE
+    row = db.query(CrawlerIndicatorConfig).filter(
+        CrawlerIndicatorConfig.id == config_id,
+        CrawlerIndicatorConfig.scope_type == scope_type,
+        CrawlerIndicatorConfig.scope_id == scope_id,
+    ).first()
+    if not row:
+        raise _HE(status_code=404, detail="Config not found")
+    row.auto_crawl_enabled = False
+    row.manual_crawl_enabled = False
+    row.crawl_status = "stopped"
+    db.commit(); db.refresh(row)
+    return row
+
+
+@router.post("/crawler/{scope_type}/{scope_id}/start")
+def start_scope_crawler(
+    scope_type: str,
+    scope_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    obj = _get_scope_entity(scope_type, scope_id, db)
+    obj.crawler_enabled = True
+    obj.crawler_start_time = datetime.now(timezone.utc)
+    obj.crawler_stop_time = None
+    db.commit(); db.refresh(obj)
+    return {"crawler_enabled": obj.crawler_enabled,
+            "crawler_start_time": obj.crawler_start_time.isoformat() if obj.crawler_start_time else None}
+
+
+@router.post("/crawler/{scope_type}/{scope_id}/stop")
+def stop_scope_crawler(
+    scope_type: str,
+    scope_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    obj = _get_scope_entity(scope_type, scope_id, db)
+    obj.crawler_enabled = False
+    obj.crawler_stop_time = datetime.now(timezone.utc)
+    db.commit(); db.refresh(obj)
+    return {"crawler_enabled": obj.crawler_enabled,
+            "crawler_stop_time": obj.crawler_stop_time.isoformat() if obj.crawler_stop_time else None}
+
+
+@router.put("/crawler/{scope_type}/{scope_id}/config")
+def update_scope_crawler_config(
+    scope_type: str,
+    scope_id: int,
+    body: CrawlerConfigUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    obj = _get_scope_entity(scope_type, scope_id, db)
+    if body.crawler_years is not None:
+        obj.crawler_years = body.crawler_years
+    db.commit(); db.refresh(obj)
+    return {"crawler_years": obj.crawler_years}

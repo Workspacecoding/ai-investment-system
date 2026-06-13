@@ -15,6 +15,9 @@ import app.models.market_config_indicator_link  # noqa: F401
 import app.models.analysis_model  # noqa: F401
 import app.models.market_indicator_config  # noqa: F401
 import app.models.asset_analysis_config  # noqa: F401
+import app.models.asset_crawler_indicator  # noqa: F401
+import app.models.asset_daily_data  # noqa: F401
+import app.models.crawler_indicator_config  # noqa: F401
 import app.models.indicator_daily_value  # noqa: F401
 import app.models.market_score_snapshot  # noqa: F401
 import app.models.role_config  # noqa: F401
@@ -96,6 +99,22 @@ def _run_column_migrations() -> None:
         "ALTER TABLE analysis_models ADD COLUMN source_id BIGINT NULL",
         "ALTER TABLE analysis_models ADD COLUMN formula_snapshot JSON NULL",
         "ALTER TABLE analysis_models ADD COLUMN validation_snapshot JSON NULL",
+        "ALTER TABLE assets ADD COLUMN position_model_id BIGINT NULL",
+        "ALTER TABLE assets ADD COLUMN analysis_model_id BIGINT NULL",
+        "ALTER TABLE assets ADD COLUMN crawler_enabled TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE assets ADD COLUMN crawler_start_time DATETIME NULL",
+        "ALTER TABLE assets ADD COLUMN crawler_stop_time DATETIME NULL",
+        "ALTER TABLE assets ADD COLUMN crawler_indicator_ids JSON NULL",
+        "ALTER TABLE assets ADD COLUMN crawler_years INT NOT NULL DEFAULT 10",
+        # Crawler support for markets and industries
+        "ALTER TABLE market_configs ADD COLUMN crawler_enabled TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE market_configs ADD COLUMN crawler_start_time DATETIME NULL",
+        "ALTER TABLE market_configs ADD COLUMN crawler_stop_time DATETIME NULL",
+        "ALTER TABLE market_configs ADD COLUMN crawler_years INT NOT NULL DEFAULT 10",
+        "ALTER TABLE industries ADD COLUMN crawler_enabled TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE industries ADD COLUMN crawler_start_time DATETIME NULL",
+        "ALTER TABLE industries ADD COLUMN crawler_stop_time DATETIME NULL",
+        "ALTER TABLE industries ADD COLUMN crawler_years INT NOT NULL DEFAULT 10",
     ]
     with engine.connect() as conn:
         for sql in migration_sqls:

@@ -17,6 +17,7 @@ from app.models.market_indicator_config import MarketIndicatorConfig, TrackedInd
 from app.models.role_config import RoleConfig
 from app.models.score_formula import ScoreFormula
 from app.models.user import User
+from sqlalchemy import text
 from app.schemas.api_config import ApiConfigCreate, ApiConfigUpdate
 from app.schemas.market_indicator import (
     MarketIndicatorConfigCreate,
@@ -149,7 +150,39 @@ def delete_asset(db: Session, asset_id: int) -> None:
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    asset.is_active = False
+    # Delete all child rows that reference this asset before hard-deleting.
+    # Tables with nullable asset_id get NULL'd; the rest get deleted.
+    nullable_tables = ["news_articles", "notification_logs"]
+    delete_tables = [
+        "asset_role_links",
+        "asset_scores",
+        "asset_analysis_configs",
+        "asset_indicator_links",
+        "asset_daily_data",
+        "asset_prices",
+        "backtest_trades",
+        "daily_report_items",
+        "factor_scores",
+        "fundamental_reports",
+        "fundamental_scores",
+        "goal_strategy_recommendations",
+        "paper_positions",
+        "paper_orders",
+        "paper_trade_logs",
+        "portfolio_optimization_assets",
+        "price_levels",
+        "profit_allocation_recommendations",
+        "recommended_assets",
+        "swing_trade_setups",
+        "technical_indicators",
+        "trade_plans",
+        "user_watchlists",
+    ]
+    for tbl in nullable_tables:
+        db.execute(text(f"UPDATE {tbl} SET asset_id = NULL WHERE asset_id = :aid"), {"aid": asset_id})
+    for tbl in delete_tables:
+        db.execute(text(f"DELETE FROM {tbl} WHERE asset_id = :aid"), {"aid": asset_id})
+    db.delete(asset)
     db.commit()
 
 

@@ -33,6 +33,10 @@ export type MarketConfig = {
   module_result_indicator_ids: number[] | null;
   module_formula_expr: string | null;
   module_validation_conditions: string | null;
+  crawler_enabled: boolean;
+  crawler_start_time: string | null;
+  crawler_stop_time: string | null;
+  crawler_years: number;
   created_at: string;
 };
 
@@ -51,6 +55,10 @@ export type IndustryRow = {
   module_result_indicator_ids: number[] | null;
   module_formula_expr: string | null;
   module_validation_conditions: string | null;
+  crawler_enabled: boolean;
+  crawler_start_time: string | null;
+  crawler_stop_time: string | null;
+  crawler_years: number;
   created_at: string;
 };
 
@@ -73,6 +81,13 @@ export type AssetRow = {
   is_active: boolean;
   data_sync_enabled: boolean;
   current_model_id: number | null;
+  position_model_id: number | null;
+  analysis_model_id: number | null;
+  crawler_enabled: boolean;
+  crawler_start_time: string | null;
+  crawler_stop_time: string | null;
+  crawler_indicator_ids: number[] | null;
+  crawler_years: number;
   module_calc_indicator_ids: number[] | null;
   module_validation_asset_ids: number[] | null;
   module_validation_indicator_ids: number[] | null;
@@ -225,6 +240,8 @@ export async function updateAdminAsset(id: number, p: Partial<{
   in_swing_pool: boolean; in_newsletter: boolean; needs_backtest: boolean;
   is_penny_stock: boolean; is_active: boolean;
   current_model_id: number | null;
+  position_model_id: number | null;
+  analysis_model_id: number | null;
   module_calc_indicator_ids: number[] | null;
   module_validation_asset_ids: number[] | null;
   module_validation_indicator_ids: number[] | null;
@@ -795,4 +812,171 @@ export async function deleteAssetPriceData(
   params?: { start_date?: string; end_date?: string },
 ): Promise<{ asset_id: number; deleted_rows: number }> {
   return (await apiClient.delete(`/admin/assets/${asset_id}/price-data`, { params })).data;
+}
+
+// ── Crawler ────────────────────────────────────────────────────────────────
+
+export type AssetDailyDataRow = {
+  id: number;
+  asset_id: number;
+  record_date: string;
+  field_key: string;
+  display_name: string;
+  category: string | null;
+  value: number | null;
+  raw_text: string | null;
+  source: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export async function startCrawler(assetId: number): Promise<{ crawler_enabled: boolean; crawler_start_time: string }> {
+  return (await apiClient.post(`/admin/assets/${assetId}/crawler/start`)).data;
+}
+
+export async function stopCrawler(assetId: number): Promise<{ crawler_enabled: boolean; crawler_stop_time: string }> {
+  return (await apiClient.post(`/admin/assets/${assetId}/crawler/stop`)).data;
+}
+
+export async function updateCrawlerConfig(assetId: number, p: { crawler_indicator_ids?: number[]; crawler_years?: number }): Promise<{ crawler_indicator_ids: number[] | null; crawler_years: number }> {
+  return (await apiClient.put(`/admin/assets/${assetId}/crawler/config`, p)).data;
+}
+
+export async function listCrawlerData(assetId: number, params?: { skip?: number; limit?: number; field_key?: string }): Promise<{ total: number; items: AssetDailyDataRow[] }> {
+  return (await apiClient.get(`/admin/assets/${assetId}/crawler/data`, { params })).data;
+}
+
+export async function addCrawlerData(assetId: number, p: { record_date: string; field_key: string; display_name: string; category?: string; value?: number; raw_text?: string; notes?: string }): Promise<AssetDailyDataRow> {
+  return (await apiClient.post(`/admin/assets/${assetId}/crawler/data`, p)).data;
+}
+
+export async function deleteCrawlerData(assetId: number, recordId: number): Promise<void> {
+  await apiClient.delete(`/admin/assets/${assetId}/crawler/data/${recordId}`);
+}
+
+// ── Per-indicator Crawler Config ───────────────────────────────────────────
+
+export type AssetCrawlerIndicatorRow = {
+  id: number;
+  asset_id: number;
+  indicator_id: number | null;
+  indicator_name: string;
+  indicator_type: string | null;
+  api_source_id: number | null;
+  is_enabled: boolean;
+  auto_crawl_enabled: boolean;
+  manual_crawl_enabled: boolean;
+  crawl_frequency: string | null;
+  crawl_time: string | null;
+  last_crawled_at: string | null;
+  next_crawl_at: string | null;
+  last_manual_crawled_at: string | null;
+  crawl_status: string;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listCrawlerIndicators(assetId: number): Promise<AssetCrawlerIndicatorRow[]> {
+  return (await apiClient.get(`/admin/assets/${assetId}/crawler/indicators`)).data;
+}
+
+export async function addCrawlerIndicator(assetId: number, p: {
+  indicator_id?: number | null;
+  indicator_name: string;
+  indicator_type?: string | null;
+  api_source_id?: number | null;
+  is_enabled?: boolean;
+  auto_crawl_enabled?: boolean;
+  manual_crawl_enabled?: boolean;
+  crawl_frequency?: string | null;
+  crawl_time?: string | null;
+}): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.post(`/admin/assets/${assetId}/crawler/indicators`, p)).data;
+}
+
+export async function updateCrawlerIndicator(assetId: number, configId: number, p: Partial<{
+  indicator_name: string;
+  indicator_type: string | null;
+  api_source_id: number | null;
+  is_enabled: boolean;
+  auto_crawl_enabled: boolean;
+  manual_crawl_enabled: boolean;
+  crawl_frequency: string | null;
+  crawl_time: string | null;
+  crawl_status: string;
+  error_message: string | null;
+}>): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.put(`/admin/assets/${assetId}/crawler/indicators/${configId}`, p)).data;
+}
+
+export async function deleteCrawlerIndicator(assetId: number, configId: number): Promise<void> {
+  await apiClient.delete(`/admin/assets/${assetId}/crawler/indicators/${configId}`);
+}
+
+export async function crawlIndicatorNow(assetId: number, configId: number): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.post(`/admin/assets/${assetId}/crawler/indicators/${configId}/crawl-now`)).data;
+}
+
+export async function stopCrawlerIndicator(assetId: number, configId: number): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.post(`/admin/assets/${assetId}/crawler/indicators/${configId}/stop`)).data;
+}
+
+// ── Generic Scope Crawler (market / industry) ─────────────────────────────
+
+export type ScopeType = "market" | "industry";
+
+export async function listScopeCrawlerIndicators(scopeType: ScopeType, scopeId: number): Promise<AssetCrawlerIndicatorRow[]> {
+  return (await apiClient.get(`/admin/crawler/${scopeType}/${scopeId}/indicators`)).data;
+}
+
+export async function addScopeCrawlerIndicator(scopeType: ScopeType, scopeId: number, p: {
+  indicator_id?: number | null;
+  indicator_name: string;
+  indicator_type?: string | null;
+  api_source_id?: number | null;
+  is_enabled?: boolean;
+  auto_crawl_enabled?: boolean;
+  manual_crawl_enabled?: boolean;
+  crawl_frequency?: string | null;
+  crawl_time?: string | null;
+}): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.post(`/admin/crawler/${scopeType}/${scopeId}/indicators`, p)).data;
+}
+
+export async function updateScopeCrawlerIndicator(scopeType: ScopeType, scopeId: number, configId: number, p: Partial<{
+  is_enabled: boolean;
+  auto_crawl_enabled: boolean;
+  manual_crawl_enabled: boolean;
+  crawl_frequency: string | null;
+  crawl_time: string | null;
+  api_source_id: number | null;
+  crawl_status: string;
+  error_message: string | null;
+}>): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.put(`/admin/crawler/${scopeType}/${scopeId}/indicators/${configId}`, p)).data;
+}
+
+export async function deleteScopeCrawlerIndicator(scopeType: ScopeType, scopeId: number, configId: number): Promise<void> {
+  await apiClient.delete(`/admin/crawler/${scopeType}/${scopeId}/indicators/${configId}`);
+}
+
+export async function crawlScopeIndicatorNow(scopeType: ScopeType, scopeId: number, configId: number): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.post(`/admin/crawler/${scopeType}/${scopeId}/indicators/${configId}/crawl-now`)).data;
+}
+
+export async function stopScopeCrawlerIndicator(scopeType: ScopeType, scopeId: number, configId: number): Promise<AssetCrawlerIndicatorRow> {
+  return (await apiClient.post(`/admin/crawler/${scopeType}/${scopeId}/indicators/${configId}/stop`)).data;
+}
+
+export async function startScopeCrawler(scopeType: ScopeType, scopeId: number): Promise<{ crawler_enabled: boolean; crawler_start_time: string }> {
+  return (await apiClient.post(`/admin/crawler/${scopeType}/${scopeId}/start`)).data;
+}
+
+export async function stopScopeCrawler(scopeType: ScopeType, scopeId: number): Promise<{ crawler_enabled: boolean; crawler_stop_time: string }> {
+  return (await apiClient.post(`/admin/crawler/${scopeType}/${scopeId}/stop`)).data;
+}
+
+export async function updateScopeCrawlerConfig(scopeType: ScopeType, scopeId: number, p: { crawler_years?: number }): Promise<{ crawler_years: number }> {
+  return (await apiClient.put(`/admin/crawler/${scopeType}/${scopeId}/config`, p)).data;
 }
