@@ -2,6 +2,20 @@ import { apiClient } from "@/lib/api/client";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
+export type AnalysisModel = {
+  id: number;
+  name: string;
+  version: string;
+  scope_type: "market" | "industry" | "asset";
+  market_code: string | null;
+  source_id: number | null;
+  description: string | null;
+  status: "active" | "testing" | "disabled";
+  formula_snapshot: Record<string, unknown> | null;
+  validation_snapshot: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type MarketConfig = {
   id: number;
   code: string;
@@ -11,6 +25,14 @@ export type MarketConfig = {
   is_active: boolean;
   is_tracked: boolean;
   display_order: number;
+  current_model_id: number | null;
+  module_calc_indicator_ids: number[] | null;
+  module_validation_asset_ids: number[] | null;
+  module_validation_indicator_ids: number[] | null;
+  module_validation_period_days: number | null;
+  module_result_indicator_ids: number[] | null;
+  module_formula_expr: string | null;
+  module_validation_conditions: string | null;
   created_at: string;
 };
 
@@ -21,6 +43,14 @@ export type IndustryRow = {
   market: string;
   description: string | null;
   tracking_status: "core" | "observation" | "disabled";
+  current_model_id: number | null;
+  module_calc_indicator_ids: number[] | null;
+  module_validation_asset_ids: number[] | null;
+  module_validation_indicator_ids: number[] | null;
+  module_validation_period_days: number | null;
+  module_result_indicator_ids: number[] | null;
+  module_formula_expr: string | null;
+  module_validation_conditions: string | null;
   created_at: string;
 };
 
@@ -42,6 +72,14 @@ export type AssetRow = {
   is_penny_stock: boolean;
   is_active: boolean;
   data_sync_enabled: boolean;
+  current_model_id: number | null;
+  module_calc_indicator_ids: number[] | null;
+  module_validation_asset_ids: number[] | null;
+  module_validation_indicator_ids: number[] | null;
+  module_validation_period_days: number | null;
+  module_result_indicator_ids: number[] | null;
+  module_formula_expr: string | null;
+  module_validation_conditions: string | null;
   created_at: string;
 };
 
@@ -123,7 +161,7 @@ export async function createMarket(p: { code: string; name: string; currency: st
   return (await apiClient.post<MarketConfig>("/admin/markets", p)).data;
 }
 
-export async function updateMarket(id: number, p: Partial<{ name: string; currency: string; description: string; is_active: boolean; is_tracked: boolean; display_order: number }>): Promise<MarketConfig> {
+export async function updateMarket(id: number, p: Partial<{ name: string; currency: string; description: string; is_active: boolean; is_tracked: boolean; display_order: number; current_model_id: number | null; module_calc_indicator_ids: number[] | null; module_validation_asset_ids: number[] | null; module_validation_indicator_ids: number[] | null; module_validation_period_days: number | null; module_result_indicator_ids: number[] | null; module_formula_expr: string | null; module_validation_conditions: string | null }>): Promise<MarketConfig> {
   return (await apiClient.put<MarketConfig>(`/admin/markets/${id}`, p)).data;
 }
 
@@ -151,7 +189,7 @@ export async function createIndustry(p: { industry_code: string; industry_name: 
   return (await apiClient.post<IndustryRow>("/admin/industries", p)).data;
 }
 
-export async function updateIndustry(id: number, p: Partial<{ industry_name: string; market: string; description: string; tracking_status: string }>): Promise<IndustryRow> {
+export async function updateIndustry(id: number, p: Partial<{ industry_name: string; market: string; description: string; tracking_status: string; current_model_id: number | null; module_calc_indicator_ids: number[] | null; module_validation_asset_ids: number[] | null; module_validation_indicator_ids: number[] | null; module_validation_period_days: number | null; module_result_indicator_ids: number[] | null; module_formula_expr: string | null; module_validation_conditions: string | null }>): Promise<IndustryRow> {
   return (await apiClient.put<IndustryRow>(`/admin/industries/${id}`, p)).data;
 }
 
@@ -186,8 +224,43 @@ export async function updateAdminAsset(id: number, p: Partial<{
   update_frequency: string | null;
   in_swing_pool: boolean; in_newsletter: boolean; needs_backtest: boolean;
   is_penny_stock: boolean; is_active: boolean;
+  current_model_id: number | null;
+  module_calc_indicator_ids: number[] | null;
+  module_validation_asset_ids: number[] | null;
+  module_validation_indicator_ids: number[] | null;
+  module_validation_period_days: number | null;
+  module_result_indicator_ids: number[] | null;
+  module_formula_expr: string | null;
+  module_validation_conditions: string | null;
 }>): Promise<AssetRow> {
   return (await apiClient.put<AssetRow>(`/admin/assets/${id}`, p)).data;
+}
+
+// ── Analysis Models ───────────────────────────────────────────────────────────
+
+export async function listAnalysisModels(): Promise<AnalysisModel[]> {
+  return (await apiClient.get<AnalysisModel[]>("/admin/analysis-models")).data;
+}
+
+export async function createAnalysisModel(p: {
+  name: string; version: string; scope_type: string;
+  market_code?: string | null; source_id?: number | null;
+  description?: string | null; status?: string;
+  formula_snapshot?: Record<string, unknown> | null;
+  validation_snapshot?: Record<string, unknown> | null;
+}): Promise<AnalysisModel> {
+  return (await apiClient.post<AnalysisModel>("/admin/analysis-models", p)).data;
+}
+
+export async function updateAnalysisModel(id: number, p: Partial<{
+  name: string; version: string; scope_type: string;
+  market_code: string | null; description: string | null; status: string;
+}>): Promise<AnalysisModel> {
+  return (await apiClient.put<AnalysisModel>(`/admin/analysis-models/${id}`, p)).data;
+}
+
+export async function deleteAnalysisModel(id: number): Promise<void> {
+  await apiClient.delete(`/admin/analysis-models/${id}`);
 }
 
 export async function deleteAdminAsset(id: number): Promise<void> {
@@ -211,6 +284,7 @@ export type MarketIndicatorConfig = {
   display_order: number;
   api_config_id: number | null;
   api_source: string | null;
+  indicator_category: string | null;
   created_at: string;
 };
 
@@ -222,6 +296,7 @@ export async function createIndicatorConfig(p: {
   field_key: string; display_name: string; unit: string;
   description?: string | null; formula?: string | null;
   display_order?: number; is_active?: boolean;
+  indicator_category?: string | null;
 }): Promise<MarketIndicatorConfig> {
   return (await apiClient.post<MarketIndicatorConfig>("/admin/indicator-configs", p)).data;
 }
@@ -230,6 +305,7 @@ export async function updateIndicatorConfig(id: number, p: Partial<{
   display_name: string; unit: string; description: string | null;
   formula: string | null; is_active: boolean; display_order: number;
   api_config_id: number | null; api_source: string | null;
+  indicator_category: string | null;
 }>): Promise<MarketIndicatorConfig> {
   return (await apiClient.put<MarketIndicatorConfig>(`/admin/indicator-configs/${id}`, p)).data;
 }
@@ -677,4 +753,46 @@ export async function updateSnapshotReturns(
 
 export async function getMarketScoreValidation(market_code: string): Promise<MarketScoreValidation> {
   return (await apiClient.get<MarketScoreValidation>(`/market-analysis/${market_code}/validation`)).data;
+}
+
+// ── Asset Analysis Config ─────────────────────────────────────────────────────
+
+export type AssetAnalysisConfig = {
+  asset_id: number;
+  technical_indicators: string[];
+  fundamental_indicators: string[];
+  chips_indicators: string[];
+  applied_models: string[];
+  show_technical: boolean;
+  show_fundamental: boolean;
+  show_chips: boolean;
+  show_model_score: boolean;
+  show_recommendation: boolean;
+  show_risk: boolean;
+  show_backtest_summary: boolean;
+};
+
+export async function getAssetAnalysisConfig(asset_id: number): Promise<AssetAnalysisConfig> {
+  return (await apiClient.get<AssetAnalysisConfig>(`/admin/assets/${asset_id}/analysis-config`)).data;
+}
+
+export async function saveAssetAnalysisConfig(asset_id: number, config: Omit<AssetAnalysisConfig, "asset_id">): Promise<AssetAnalysisConfig> {
+  return (await apiClient.put<AssetAnalysisConfig>(`/admin/assets/${asset_id}/analysis-config`, config)).data;
+}
+
+// ── Asset Data Sync ───────────────────────────────────────────────────────────
+
+export async function startAssetSync(asset_id: number): Promise<{ asset_id: number; data_sync_enabled: boolean }> {
+  return (await apiClient.post(`/admin/assets/${asset_id}/sync/start`)).data;
+}
+
+export async function pauseAssetSync(asset_id: number): Promise<{ asset_id: number; data_sync_enabled: boolean }> {
+  return (await apiClient.post(`/admin/assets/${asset_id}/sync/pause`)).data;
+}
+
+export async function deleteAssetPriceData(
+  asset_id: number,
+  params?: { start_date?: string; end_date?: string },
+): Promise<{ asset_id: number; deleted_rows: number }> {
+  return (await apiClient.delete(`/admin/assets/${asset_id}/price-data`, { params })).data;
 }

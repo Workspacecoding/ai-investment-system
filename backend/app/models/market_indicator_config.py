@@ -19,6 +19,7 @@ class MarketIndicatorConfig(Base):
     display_order = Column(Integer, nullable=False, default=0)
     api_config_id = Column(BigInteger, nullable=True)
     api_source = Column(String(100), nullable=True)
+    indicator_category = Column(String(30), nullable=True)  # technical / fundamental / chips
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

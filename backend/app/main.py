@@ -12,7 +12,9 @@ import app.models.factor_corr_report  # noqa: F401
 import app.models.industry_indicator_link  # noqa: F401
 import app.models.market_config  # noqa: F401
 import app.models.market_config_indicator_link  # noqa: F401
+import app.models.analysis_model  # noqa: F401
 import app.models.market_indicator_config  # noqa: F401
+import app.models.asset_analysis_config  # noqa: F401
 import app.models.indicator_daily_value  # noqa: F401
 import app.models.market_score_snapshot  # noqa: F401
 import app.models.role_config  # noqa: F401
@@ -65,6 +67,35 @@ def _run_column_migrations() -> None:
         "ALTER TABLE assets ADD COLUMN needs_backtest TINYINT(1) NOT NULL DEFAULT 0",
         "ALTER TABLE score_formulas ADD COLUMN is_reverse TINYINT(1) NOT NULL DEFAULT 0",
         "ALTER TABLE score_formulas ADD COLUMN market_code VARCHAR(20) NULL",
+        "ALTER TABLE market_indicator_configs ADD COLUMN indicator_category VARCHAR(30) NULL",
+        "ALTER TABLE market_configs ADD COLUMN current_model_id BIGINT NULL",
+        "ALTER TABLE industries ADD COLUMN current_model_id BIGINT NULL",
+        "ALTER TABLE assets ADD COLUMN current_model_id BIGINT NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_calc_indicator_ids JSON NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_validation_asset_ids JSON NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_validation_indicator_ids JSON NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_validation_period_days INT NULL DEFAULT 30",
+        "ALTER TABLE market_configs ADD COLUMN module_result_indicator_ids JSON NULL",
+        "ALTER TABLE analysis_models ADD COLUMN market_code VARCHAR(20) NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_formula_expr TEXT NULL",
+        "ALTER TABLE industries ADD COLUMN module_formula_expr TEXT NULL",
+        "ALTER TABLE assets ADD COLUMN module_formula_expr TEXT NULL",
+        "ALTER TABLE industries ADD COLUMN module_calc_indicator_ids JSON NULL",
+        "ALTER TABLE industries ADD COLUMN module_validation_asset_ids JSON NULL",
+        "ALTER TABLE industries ADD COLUMN module_validation_indicator_ids JSON NULL",
+        "ALTER TABLE industries ADD COLUMN module_validation_period_days INT NULL DEFAULT 30",
+        "ALTER TABLE industries ADD COLUMN module_result_indicator_ids JSON NULL",
+        "ALTER TABLE assets ADD COLUMN module_calc_indicator_ids JSON NULL",
+        "ALTER TABLE assets ADD COLUMN module_validation_asset_ids JSON NULL",
+        "ALTER TABLE assets ADD COLUMN module_validation_indicator_ids JSON NULL",
+        "ALTER TABLE assets ADD COLUMN module_validation_period_days INT NULL DEFAULT 30",
+        "ALTER TABLE assets ADD COLUMN module_result_indicator_ids JSON NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_validation_conditions TEXT NULL",
+        "ALTER TABLE industries ADD COLUMN module_validation_conditions TEXT NULL",
+        "ALTER TABLE assets ADD COLUMN module_validation_conditions TEXT NULL",
+        "ALTER TABLE analysis_models ADD COLUMN source_id BIGINT NULL",
+        "ALTER TABLE analysis_models ADD COLUMN formula_snapshot JSON NULL",
+        "ALTER TABLE analysis_models ADD COLUMN validation_snapshot JSON NULL",
     ]
     with engine.connect() as conn:
         for sql in migration_sqls:

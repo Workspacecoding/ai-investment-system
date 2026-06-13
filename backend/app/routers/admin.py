@@ -27,6 +27,9 @@ from app.schemas.admin import (
     RoleConfigResponse,
     RoleConfigUpdate,
     ScoreFormulaCreate,
+    AnalysisModelCreate,
+    AnalysisModelResponse,
+    AnalysisModelUpdate,
     ScoreFormulaResponse,
     ScoreFormulaUpdate,
     StockCorrEntryCreate,
@@ -705,3 +708,195 @@ def put_asset_role_links(
     _: User = Depends(_require_auth),
 ):
     return set_asset_roles(db, asset_id, role_ids)
+
+
+# ── Asset Analysis Config ─────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _PBM
+from typing import Optional as _Opt
+
+
+class _AnalysisConfigPayload(_PBM):
+    technical_indicators: _Opt[list[str]] = None
+    fundamental_indicators: _Opt[list[str]] = None
+    chips_indicators: _Opt[list[str]] = None
+    applied_models: _Opt[list[str]] = None
+    show_technical: bool = True
+    show_fundamental: bool = True
+    show_chips: bool = False
+    show_model_score: bool = True
+    show_recommendation: bool = True
+    show_risk: bool = False
+    show_backtest_summary: bool = False
+
+
+@router.get("/assets/{asset_id}/analysis-config")
+def get_analysis_config(asset_id: int, db: Session = Depends(get_db), _: User = Depends(_require_auth)):
+    from app.models.asset_analysis_config import AssetAnalysisConfig
+    row = db.query(AssetAnalysisConfig).filter(AssetAnalysisConfig.asset_id == asset_id).first()
+    if not row:
+        return {
+            "asset_id": asset_id,
+            "technical_indicators": [],
+            "fundamental_indicators": [],
+            "chips_indicators": [],
+            "applied_models": [],
+            "show_technical": True, "show_fundamental": True, "show_chips": False,
+            "show_model_score": True, "show_recommendation": True,
+            "show_risk": False, "show_backtest_summary": False,
+        }
+    return {
+        "asset_id": row.asset_id,
+        "technical_indicators": row.technical_indicators or [],
+        "fundamental_indicators": row.fundamental_indicators or [],
+        "chips_indicators": row.chips_indicators or [],
+        "applied_models": row.applied_models or [],
+        "show_technical": row.show_technical,
+        "show_fundamental": row.show_fundamental,
+        "show_chips": row.show_chips,
+        "show_model_score": row.show_model_score,
+        "show_recommendation": row.show_recommendation,
+        "show_risk": row.show_risk,
+        "show_backtest_summary": row.show_backtest_summary,
+    }
+
+
+@router.put("/assets/{asset_id}/analysis-config")
+def put_analysis_config(
+    asset_id: int,
+    body: _AnalysisConfigPayload,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from app.models.asset_analysis_config import AssetAnalysisConfig
+    row = db.query(AssetAnalysisConfig).filter(AssetAnalysisConfig.asset_id == asset_id).first()
+    if row:
+        for field, val in body.model_dump().items():
+            setattr(row, field, val)
+    else:
+        row = AssetAnalysisConfig(asset_id=asset_id, **body.model_dump())
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return get_analysis_config(asset_id, db, _)
+
+
+# ── Asset Data Sync Controls ──────────────────────────────────────────────────
+
+from datetime import date as _date
+
+
+@router.post("/assets/{asset_id}/sync/start")
+def start_sync(asset_id: int, db: Session = Depends(get_db), _: User = Depends(_require_auth)):
+    from app.models.universe import Asset
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Asset not found")
+    asset.data_sync_enabled = True
+    db.commit()
+    return {"asset_id": asset_id, "data_sync_enabled": True}
+
+
+@router.post("/assets/{asset_id}/sync/pause")
+def pause_sync(asset_id: int, db: Session = Depends(get_db), _: User = Depends(_require_auth)):
+    from app.models.universe import Asset
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Asset not found")
+    asset.data_sync_enabled = False
+    db.commit()
+    return {"asset_id": asset_id, "data_sync_enabled": False}
+
+
+@router.delete("/assets/{asset_id}/price-data", status_code=status.HTTP_200_OK)
+def delete_price_data(
+    asset_id: int,
+    start_date: _Opt[_date] = None,
+    end_date: _Opt[_date] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    """Delete price data for an asset. If start_date/end_date are given, delete only that range."""
+    # price_data table implementation pending; returns count of deleted rows
+    deleted = 0
+    try:
+        from sqlalchemy import text
+        if start_date and end_date:
+            result = db.execute(
+                text("DELETE FROM price_data WHERE asset_id = :aid AND date BETWEEN :s AND :e"),
+                {"aid": asset_id, "s": start_date, "e": end_date},
+            )
+        elif start_date:
+            result = db.execute(
+                text("DELETE FROM price_data WHERE asset_id = :aid AND date >= :s"),
+                {"aid": asset_id, "s": start_date},
+            )
+        elif end_date:
+            result = db.execute(
+                text("DELETE FROM price_data WHERE asset_id = :aid AND date <= :e"),
+                {"aid": asset_id, "e": end_date},
+            )
+        else:
+            result = db.execute(
+                text("DELETE FROM price_data WHERE asset_id = :aid"),
+                {"aid": asset_id},
+            )
+        db.commit()
+        deleted = result.rowcount
+    except Exception:
+        pass  # table may not exist yet
+    return {"asset_id": asset_id, "deleted_rows": deleted}
+
+
+# ── Analysis Models ───────────────────────────────────────────────────────────
+
+from app.models.analysis_model import AnalysisModel
+
+
+@router.get("/analysis-models", response_model=list[AnalysisModelResponse])
+def list_analysis_models(
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    return db.query(AnalysisModel).order_by(AnalysisModel.scope_type, AnalysisModel.name, AnalysisModel.version).all()
+
+
+@router.post("/analysis-models", response_model=AnalysisModelResponse, status_code=status.HTTP_201_CREATED)
+def create_analysis_model(
+    body: AnalysisModelCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    m = AnalysisModel(**body.model_dump())
+    db.add(m); db.commit(); db.refresh(m)
+    return m
+
+
+@router.put("/analysis-models/{model_id}", response_model=AnalysisModelResponse)
+def update_analysis_model(
+    model_id: int,
+    body: AnalysisModelUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    m = db.query(AnalysisModel).filter(AnalysisModel.id == model_id).first()
+    if not m:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Model not found")
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(m, k, v)
+    db.commit(); db.refresh(m)
+    return m
+
+
+@router.delete("/analysis-models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_analysis_model(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    m = db.query(AnalysisModel).filter(AnalysisModel.id == model_id).first()
+    if m:
+        db.delete(m); db.commit()

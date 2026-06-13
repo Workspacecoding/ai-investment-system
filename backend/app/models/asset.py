@@ -6,6 +6,8 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -39,6 +41,14 @@ class Asset(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     data_sync_enabled = Column(Boolean, nullable=False, default=False)
     last_price_synced_at = Column(DateTime, nullable=True)
+    current_model_id = Column(BigInteger, nullable=True)
+    module_calc_indicator_ids = Column(JSON, nullable=True)
+    module_validation_asset_ids = Column(JSON, nullable=True)
+    module_validation_indicator_ids = Column(JSON, nullable=True)
+    module_validation_period_days = Column(Integer, nullable=True, default=30)
+    module_result_indicator_ids = Column(JSON, nullable=True)
+    module_formula_expr = Column(Text, nullable=True)
+    module_validation_conditions = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(
         DateTime,

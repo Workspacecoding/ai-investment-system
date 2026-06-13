@@ -6,6 +6,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -25,6 +26,14 @@ class Industry(Base):
     description = Column(Text)
     # tracking_status: "core" | "observation" | "disabled"
     tracking_status = Column(String(20), nullable=False, server_default="disabled")
+    current_model_id = Column(BigInteger, nullable=True)
+    module_calc_indicator_ids = Column(JSON, nullable=True)
+    module_validation_asset_ids = Column(JSON, nullable=True)
+    module_validation_indicator_ids = Column(JSON, nullable=True)
+    module_validation_period_days = Column(Integer, nullable=True, default=30)
+    module_result_indicator_ids = Column(JSON, nullable=True)
+    module_formula_expr = Column(Text, nullable=True)
+    module_validation_conditions = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(
         DateTime,

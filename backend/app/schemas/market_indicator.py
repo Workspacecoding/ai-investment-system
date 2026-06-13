@@ -11,6 +11,7 @@ class MarketIndicatorConfigCreate(BaseModel):
     formula: str | None = None
     is_active: bool = True
     display_order: int = 0
+    indicator_category: str | None = None
 
 
 class MarketIndicatorConfigUpdate(BaseModel):
@@ -22,6 +23,7 @@ class MarketIndicatorConfigUpdate(BaseModel):
     display_order: int | None = None
     api_config_id: int | None = None
     api_source: str | None = None
+    indicator_category: str | None = None
 
 
 class MarketIndicatorConfigResponse(BaseModel):
@@ -35,6 +37,7 @@ class MarketIndicatorConfigResponse(BaseModel):
     display_order: int
     api_config_id: int | None = None
     api_source: str | None = None
+    indicator_category: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

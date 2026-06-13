@@ -89,6 +89,14 @@ class MarketConfigUpdate(BaseModel):
     is_active: bool | None = None
     is_tracked: bool | None = None
     display_order: int | None = None
+    current_model_id: int | None = None
+    module_calc_indicator_ids: list[int] | None = None
+    module_validation_asset_ids: list[int] | None = None
+    module_validation_indicator_ids: list[int] | None = None
+    module_validation_period_days: int | None = None
+    module_result_indicator_ids: list[int] | None = None
+    module_formula_expr: str | None = None
+    module_validation_conditions: str | None = None
 
 
 class MarketConfigResponse(BaseModel):
@@ -100,6 +108,14 @@ class MarketConfigResponse(BaseModel):
     is_active: bool
     is_tracked: bool = False
     display_order: int = 0
+    current_model_id: int | None = None
+    module_calc_indicator_ids: list[int] | None = None
+    module_validation_asset_ids: list[int] | None = None
+    module_validation_indicator_ids: list[int] | None = None
+    module_validation_period_days: int | None = None
+    module_result_indicator_ids: list[int] | None = None
+    module_formula_expr: str | None = None
+    module_validation_conditions: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -122,6 +138,14 @@ class AssetUpdate(BaseModel):
     needs_backtest: bool | None = None
     is_penny_stock: bool | None = None
     is_active: bool | None = None
+    current_model_id: int | None = None
+    module_calc_indicator_ids: list[int] | None = None
+    module_validation_asset_ids: list[int] | None = None
+    module_validation_indicator_ids: list[int] | None = None
+    module_validation_period_days: int | None = None
+    module_result_indicator_ids: list[int] | None = None
+    module_formula_expr: str | None = None
+    module_validation_conditions: str | None = None
 
 
 class AssetBulkItem(BaseModel):
@@ -148,6 +172,56 @@ class IndustryUpdate(BaseModel):
     market: str | None = None
     description: str | None = None
     tracking_status: str | None = None  # "core" | "observation" | "disabled"
+    current_model_id: int | None = None
+    module_calc_indicator_ids: list[int] | None = None
+    module_validation_asset_ids: list[int] | None = None
+    module_validation_indicator_ids: list[int] | None = None
+    module_validation_period_days: int | None = None
+    module_result_indicator_ids: list[int] | None = None
+    module_formula_expr: str | None = None
+    module_validation_conditions: str | None = None
+
+
+# ── Analysis Model ───────────────────────────────────────────────────────────
+
+class AnalysisModelCreate(BaseModel):
+    name: str
+    version: str
+    scope_type: str           # "market" | "industry" | "asset"
+    market_code: str | None = None
+    source_id: int | None = None
+    description: str | None = None
+    status: str = "testing"   # "active" | "testing" | "disabled"
+    formula_snapshot: dict | None = None
+    validation_snapshot: dict | None = None
+
+
+class AnalysisModelUpdate(BaseModel):
+    name: str | None = None
+    version: str | None = None
+    scope_type: str | None = None
+    market_code: str | None = None
+    source_id: int | None = None
+    description: str | None = None
+    status: str | None = None
+    formula_snapshot: dict | None = None
+    validation_snapshot: dict | None = None
+
+
+class AnalysisModelResponse(BaseModel):
+    id: int
+    name: str
+    version: str
+    scope_type: str
+    market_code: str | None = None
+    source_id: int | None = None
+    description: str | None = None
+    status: str
+    formula_snapshot: dict | None = None
+    validation_snapshot: dict | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── Symbol lookup ────────────────────────────────────────────────────────────

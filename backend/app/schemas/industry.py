@@ -17,6 +17,14 @@ class IndustryResponse(BaseModel):
     market: str
     description: str | None = None
     tracking_status: str = "disabled"  # "core" | "observation" | "disabled"
+    current_model_id: int | None = None
+    module_calc_indicator_ids: list[int] | None = None
+    module_validation_asset_ids: list[int] | None = None
+    module_validation_indicator_ids: list[int] | None = None
+    module_validation_period_days: int | None = None
+    module_result_indicator_ids: list[int] | None = None
+    module_formula_expr: str | None = None
+    module_validation_conditions: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
