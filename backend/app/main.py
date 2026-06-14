@@ -22,6 +22,10 @@ import app.models.indicator_daily_value  # noqa: F401
 import app.models.market_score_snapshot  # noqa: F401
 import app.models.role_config  # noqa: F401
 import app.models.score_formula  # noqa: F401
+import app.models.data_update_task  # noqa: F401
+import app.models.strategy_wave  # noqa: F401
+import app.models.strategy_position  # noqa: F401
+import app.models.model_validation_record  # noqa: F401
 from app.routers.auth import router as auth_router
 from app.routers.daily_reports import router as daily_reports_router
 from app.routers.backtesting import router as backtesting_router
@@ -46,6 +50,8 @@ from app.routers.admin import router as admin_router
 from app.routers.market_analysis import router as market_analysis_router
 from app.routers.swing_recommend import router as swing_recommend_router
 from app.routers.universe import router as universe_router
+from app.routers.data_update import router as data_update_router
+from app.routers.strategies import router as strategies_router
 
 app = FastAPI()
 
@@ -115,6 +121,37 @@ def _run_column_migrations() -> None:
         "ALTER TABLE industries ADD COLUMN crawler_start_time DATETIME NULL",
         "ALTER TABLE industries ADD COLUMN crawler_stop_time DATETIME NULL",
         "ALTER TABLE industries ADD COLUMN crawler_years INT NOT NULL DEFAULT 10",
+        # Model validation records extra columns
+        "ALTER TABLE model_validation_records ADD COLUMN validation_indicator_id BIGINT NULL",
+        "ALTER TABLE model_validation_records ADD COLUMN validation_indicator_name VARCHAR(200) NULL",
+        # Validation formula management
+        "ALTER TABLE score_formulas ADD COLUMN formula_expr TEXT NULL",
+        "ALTER TABLE market_configs ADD COLUMN module_validation_formula_id BIGINT NULL",
+        "ALTER TABLE industries ADD COLUMN module_validation_formula_id BIGINT NULL",
+        "ALTER TABLE assets ADD COLUMN swing_validation_formula_id BIGINT NULL",
+        "ALTER TABLE assets ADD COLUMN position_validation_formula_id BIGINT NULL",
+        # Wave backtest extended fields
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN analysis_model_id BIGINT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN analysis_model_name VARCHAR(200) NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN validation_indicator_id BIGINT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN validation_indicator_name VARCHAR(200) NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN model_score FLOAT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN entry_price FLOAT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN exit_price FLOAT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN holding_days INT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN avg_return_pct FLOAT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN max_drawdown_pct FLOAT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN fit_rate FLOAT NULL",
+        "ALTER TABLE strategy_wave_backtests ADD COLUMN notes TEXT NULL",
+        # Position validation extended fields
+        "ALTER TABLE strategy_position_validations ADD COLUMN analysis_model_id BIGINT NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN analysis_model_name VARCHAR(200) NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN validation_indicator_id BIGINT NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN validation_indicator_name VARCHAR(200) NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN model_score FLOAT NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN holding_days INT NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN fit_rate FLOAT NULL",
+        "ALTER TABLE strategy_position_validations ADD COLUMN notes TEXT NULL",
     ]
     with engine.connect() as conn:
         for sql in migration_sqls:
@@ -181,6 +218,8 @@ app.include_router(daily_reports_router)
 app.include_router(admin_router)
 app.include_router(market_analysis_router)
 app.include_router(swing_recommend_router)
+app.include_router(data_update_router)
+app.include_router(strategies_router)
 
 
 @app.get("/health")

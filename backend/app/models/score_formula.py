@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, Integer, String
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, Integer, String, Text
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -20,5 +20,6 @@ class ScoreFormula(Base):
     use_in_calc = Column(Boolean, nullable=False, default=True)
     is_reverse = Column(Boolean, nullable=False, default=False)
     display_order = Column(Integer, nullable=False, default=0)
+    formula_expr = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

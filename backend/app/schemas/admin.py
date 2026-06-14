@@ -42,6 +42,7 @@ class AssetIndicatorLinkItem(BaseModel):
 class ScoreFormulaResponse(BaseModel):
     id: int
     formula_type: str
+    market_code: str | None = None
     field_key: str
     display_name: str
     weight: float
@@ -49,11 +50,13 @@ class ScoreFormulaResponse(BaseModel):
     use_in_calc: bool
     is_reverse: bool = False
     display_order: int
+    formula_expr: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class ScoreFormulaCreate(BaseModel):
     formula_type: str
+    market_code: str | None = None
     field_key: str
     display_name: str
     weight: float = 0.0
@@ -61,6 +64,7 @@ class ScoreFormulaCreate(BaseModel):
     use_in_calc: bool = True
     is_reverse: bool = False
     display_order: int = 0
+    formula_expr: str | None = None
 
 
 class ScoreFormulaUpdate(BaseModel):
@@ -70,6 +74,8 @@ class ScoreFormulaUpdate(BaseModel):
     use_in_calc: bool | None = None
     is_reverse: bool | None = None
     display_order: int | None = None
+    market_code: str | None = None
+    formula_expr: str | None = None
 
 
 # ── MarketConfig ────────────────────────────────────────────────────────────
@@ -97,6 +103,7 @@ class MarketConfigUpdate(BaseModel):
     module_result_indicator_ids: list[int] | None = None
     module_formula_expr: str | None = None
     module_validation_conditions: str | None = None
+    module_validation_formula_id: int | None = None
 
 
 class MarketConfigResponse(BaseModel):
@@ -116,6 +123,7 @@ class MarketConfigResponse(BaseModel):
     module_result_indicator_ids: list[int] | None = None
     module_formula_expr: str | None = None
     module_validation_conditions: str | None = None
+    module_validation_formula_id: int | None = None
     crawler_enabled: bool = False
     crawler_start_time: datetime | None = None
     crawler_stop_time: datetime | None = None
@@ -152,6 +160,8 @@ class AssetUpdate(BaseModel):
     module_result_indicator_ids: list[int] | None = None
     module_formula_expr: str | None = None
     module_validation_conditions: str | None = None
+    swing_validation_formula_id: int | None = None
+    position_validation_formula_id: int | None = None
 
 
 class AssetBulkItem(BaseModel):
@@ -186,6 +196,7 @@ class IndustryUpdate(BaseModel):
     module_result_indicator_ids: list[int] | None = None
     module_formula_expr: str | None = None
     module_validation_conditions: str | None = None
+    module_validation_formula_id: int | None = None
 
 
 # ── Analysis Model ───────────────────────────────────────────────────────────

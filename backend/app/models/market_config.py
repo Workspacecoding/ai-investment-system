@@ -32,6 +32,7 @@ class MarketConfig(Base):
     module_formula_expr = Column(Text, nullable=True)
     # Validation condition expression, e.g. "MarketScore > 80"
     module_validation_conditions = Column(Text, nullable=True)
+    module_validation_formula_id = Column(BigInteger, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

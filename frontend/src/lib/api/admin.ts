@@ -6,7 +6,7 @@ export type AnalysisModel = {
   id: number;
   name: string;
   version: string;
-  scope_type: "market" | "industry" | "asset";
+  scope_type: "market" | "industry" | "asset" | "strategy";
   market_code: string | null;
   source_id: number | null;
   description: string | null;
@@ -14,6 +14,7 @@ export type AnalysisModel = {
   formula_snapshot: Record<string, unknown> | null;
   validation_snapshot: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string | null;
 };
 
 export type MarketConfig = {
@@ -33,6 +34,7 @@ export type MarketConfig = {
   module_result_indicator_ids: number[] | null;
   module_formula_expr: string | null;
   module_validation_conditions: string | null;
+  module_validation_formula_id: number | null;
   crawler_enabled: boolean;
   crawler_start_time: string | null;
   crawler_stop_time: string | null;
@@ -55,6 +57,7 @@ export type IndustryRow = {
   module_result_indicator_ids: number[] | null;
   module_formula_expr: string | null;
   module_validation_conditions: string | null;
+  module_validation_formula_id: number | null;
   crawler_enabled: boolean;
   crawler_start_time: string | null;
   crawler_stop_time: string | null;
@@ -95,6 +98,8 @@ export type AssetRow = {
   module_result_indicator_ids: number[] | null;
   module_formula_expr: string | null;
   module_validation_conditions: string | null;
+  swing_validation_formula_id: number | null;
+  position_validation_formula_id: number | null;
   created_at: string;
 };
 
@@ -176,7 +181,7 @@ export async function createMarket(p: { code: string; name: string; currency: st
   return (await apiClient.post<MarketConfig>("/admin/markets", p)).data;
 }
 
-export async function updateMarket(id: number, p: Partial<{ name: string; currency: string; description: string; is_active: boolean; is_tracked: boolean; display_order: number; current_model_id: number | null; module_calc_indicator_ids: number[] | null; module_validation_asset_ids: number[] | null; module_validation_indicator_ids: number[] | null; module_validation_period_days: number | null; module_result_indicator_ids: number[] | null; module_formula_expr: string | null; module_validation_conditions: string | null }>): Promise<MarketConfig> {
+export async function updateMarket(id: number, p: Partial<{ name: string; currency: string; description: string; is_active: boolean; is_tracked: boolean; display_order: number; current_model_id: number | null; module_calc_indicator_ids: number[] | null; module_validation_asset_ids: number[] | null; module_validation_indicator_ids: number[] | null; module_validation_period_days: number | null; module_result_indicator_ids: number[] | null; module_formula_expr: string | null; module_validation_conditions: string | null; module_validation_formula_id: number | null }>): Promise<MarketConfig> {
   return (await apiClient.put<MarketConfig>(`/admin/markets/${id}`, p)).data;
 }
 
@@ -204,7 +209,7 @@ export async function createIndustry(p: { industry_code: string; industry_name: 
   return (await apiClient.post<IndustryRow>("/admin/industries", p)).data;
 }
 
-export async function updateIndustry(id: number, p: Partial<{ industry_name: string; market: string; description: string; tracking_status: string; current_model_id: number | null; module_calc_indicator_ids: number[] | null; module_validation_asset_ids: number[] | null; module_validation_indicator_ids: number[] | null; module_validation_period_days: number | null; module_result_indicator_ids: number[] | null; module_formula_expr: string | null; module_validation_conditions: string | null }>): Promise<IndustryRow> {
+export async function updateIndustry(id: number, p: Partial<{ industry_name: string; market: string; description: string; tracking_status: string; current_model_id: number | null; module_calc_indicator_ids: number[] | null; module_validation_asset_ids: number[] | null; module_validation_indicator_ids: number[] | null; module_validation_period_days: number | null; module_result_indicator_ids: number[] | null; module_formula_expr: string | null; module_validation_conditions: string | null; module_validation_formula_id: number | null }>): Promise<IndustryRow> {
   return (await apiClient.put<IndustryRow>(`/admin/industries/${id}`, p)).data;
 }
 
@@ -249,6 +254,8 @@ export async function updateAdminAsset(id: number, p: Partial<{
   module_result_indicator_ids: number[] | null;
   module_formula_expr: string | null;
   module_validation_conditions: string | null;
+  swing_validation_formula_id: number | null;
+  position_validation_formula_id: number | null;
 }>): Promise<AssetRow> {
   return (await apiClient.put<AssetRow>(`/admin/assets/${id}`, p)).data;
 }
@@ -426,6 +433,13 @@ export type ScoreFormula = {
   use_in_calc: boolean;
   is_reverse: boolean;
   display_order: number;
+  formula_expr?: string | null;
+};
+
+export type FormulaAssociatedModules = {
+  markets: { id: number; name: string; code: string }[];
+  industries: { id: number; name: string }[];
+  assets: { id: number; name: string; symbol: string; section: string }[];
 };
 
 export async function listScoreFormulas(formula_type?: string, market_code?: string | null): Promise<ScoreFormula[]> {
@@ -439,12 +453,16 @@ export async function createScoreFormula(p: Omit<ScoreFormula, "id">): Promise<S
   return (await apiClient.post<ScoreFormula>("/admin/score-formulas", p)).data;
 }
 
-export async function updateScoreFormula(id: number, p: Partial<Pick<ScoreFormula, "display_name" | "weight" | "is_active" | "use_in_calc" | "is_reverse" | "display_order" | "market_code">>): Promise<ScoreFormula> {
+export async function updateScoreFormula(id: number, p: Partial<Pick<ScoreFormula, "display_name" | "weight" | "is_active" | "use_in_calc" | "is_reverse" | "display_order" | "market_code" | "formula_expr">>): Promise<ScoreFormula> {
   return (await apiClient.put<ScoreFormula>(`/admin/score-formulas/${id}`, p)).data;
 }
 
 export async function deleteScoreFormula(id: number): Promise<void> {
   await apiClient.delete(`/admin/score-formulas/${id}`);
+}
+
+export async function getFormulaAssociatedModules(id: number): Promise<FormulaAssociatedModules> {
+  return (await apiClient.get<FormulaAssociatedModules>(`/admin/score-formulas/${id}/associated-modules`)).data;
 }
 
 // ── API Configs ───────────────────────────────────────────────────────────────
@@ -979,4 +997,247 @@ export async function stopScopeCrawler(scopeType: ScopeType, scopeId: number): P
 
 export async function updateScopeCrawlerConfig(scopeType: ScopeType, scopeId: number, p: { crawler_years?: number }): Promise<{ crawler_years: number }> {
   return (await apiClient.put(`/admin/crawler/${scopeType}/${scopeId}/config`, p)).data;
+}
+
+// ── Data Update Tasks ─────────────────────────────────────────────────────────
+
+export type DataUpdateTask = {
+  id: number;
+  name: string | null;
+  indicator_ids: number[];
+  target_type: "single" | "multiple" | "industry" | "market" | "all";
+  target_ids: (number | string)[] | null;
+  update_mode: "manual" | "auto";
+  data_mode: "full" | "incremental" | "backfill";
+  start_date: string | null;
+  end_date: string | null;
+  auto_frequency: "daily" | "weekly" | "monthly" | "custom" | null;
+  cron_expr: string | null;
+  skip_existing: boolean;
+  overwrite: boolean;
+  retry_on_fail: boolean;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type DataUpdateLog = {
+  id: number;
+  task_id: number | null;
+  executed_at: string;
+  indicator_ids: number[] | null;
+  target_count: number;
+  added_count: number;
+  updated_count: number;
+  failed_count: number;
+  status: "running" | "success" | "failed";
+  error_message: string | null;
+  duration_seconds: number | null;
+  completed_at: string | null;
+};
+
+export type ExecuteRequest = {
+  indicator_ids: number[];
+  target_type: string;
+  target_ids?: (number | string)[] | null;
+  update_mode: string;
+  data_mode: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  skip_existing: boolean;
+  overwrite: boolean;
+  retry_on_fail: boolean;
+  task_id?: number | null;
+};
+
+export async function listDataUpdateTasks(): Promise<DataUpdateTask[]> {
+  return (await apiClient.get<DataUpdateTask[]>("/admin/data-update/tasks")).data;
+}
+
+export async function createDataUpdateTask(p: Omit<DataUpdateTask, "id" | "created_at" | "is_active">): Promise<DataUpdateTask> {
+  return (await apiClient.post<DataUpdateTask>("/admin/data-update/tasks", p)).data;
+}
+
+export async function deleteDataUpdateTask(id: number): Promise<void> {
+  await apiClient.delete(`/admin/data-update/tasks/${id}`);
+}
+
+export async function executeDataUpdate(req: ExecuteRequest): Promise<DataUpdateLog> {
+  return (await apiClient.post<DataUpdateLog>("/admin/data-update/execute", req)).data;
+}
+
+export async function executeDataUpdateTask(taskId: number): Promise<DataUpdateLog> {
+  return (await apiClient.post<DataUpdateLog>(`/admin/data-update/tasks/${taskId}/execute`)).data;
+}
+
+export async function listDataUpdateLogs(taskId?: number): Promise<DataUpdateLog[]> {
+  const params = taskId !== undefined ? { task_id: taskId } : {};
+  return (await apiClient.get<DataUpdateLog[]>("/admin/data-update/logs", { params })).data;
+}
+
+export async function deleteDataUpdateLog(id: number): Promise<void> {
+  await apiClient.delete(`/admin/data-update/logs/${id}`);
+}
+
+// ── Strategy Types ────────────────────────────────────────────────────────────
+
+export type StrategyWave = {
+  id: number;
+  asset_id: number;
+  asset_symbol: string;
+  strategy_name: string;
+  period_days: number | null;
+  activation_price: number | null;
+  buy_price: number | null;
+  sell_price_1: number | null;
+  sell_price_2: number | null;
+  win_rate: number | null;
+  avg_return_pct: number | null;
+  status: "active" | "testing" | "disabled";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StrategyWaveBacktest = {
+  id: number;
+  wave_id: number;
+  backtest_date: string;
+  analysis_model_id: number | null;
+  analysis_model_name: string | null;
+  validation_indicator_id: number | null;
+  validation_indicator_name: string | null;
+  model_score: number | null;
+  indicator_score: number | null;
+  validation_target: string | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  growth_pct: number | null;
+  holding_days: number | null;
+  win_rate: number | null;
+  avg_return_pct: number | null;
+  max_drawdown_pct: number | null;
+  fit_rate: number | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type StrategyPosition = {
+  id: number;
+  asset_id: number;
+  asset_symbol: string;
+  center_price: number;
+  current_price: number | null;
+  method: string | null;
+  strong_buy_pct: number;
+  buy_pct: number;
+  watch_pct: number;
+  sell_1_pct: number;
+  sell_2_pct: number;
+  sell_3_pct: number;
+  strong_buy_price: number;
+  buy_price: number;
+  watch_price: number;
+  sell_1_price: number;
+  sell_2_price: number;
+  sell_3_price: number;
+  status: "active" | "testing" | "disabled";
+  notes: string | null;
+  updated_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StrategyPositionValidation = {
+  id: number;
+  position_id: number;
+  validation_date: string;
+  analysis_model_id: number | null;
+  analysis_model_name: string | null;
+  validation_indicator_id: number | null;
+  validation_indicator_name: string | null;
+  model_score: number | null;
+  buy_zone: string | null;
+  buy_price: number | null;
+  sell_zone: string | null;
+  sell_price: number | null;
+  holding_days: number | null;
+  return_pct: number | null;
+  fit_rate: number | null;
+  notes: string | null;
+  created_at: string;
+};
+
+// ── Strategy API functions ────────────────────────────────────────────────────
+
+export async function listStrategyWaves(): Promise<StrategyWave[]> {
+  return (await apiClient.get<StrategyWave[]>("/admin/strategies/waves")).data;
+}
+export async function createStrategyWave(p: Omit<StrategyWave, "id" | "created_at" | "updated_at">): Promise<StrategyWave> {
+  return (await apiClient.post<StrategyWave>("/admin/strategies/waves", p)).data;
+}
+export async function updateStrategyWave(id: number, p: Partial<Omit<StrategyWave, "id" | "asset_id" | "asset_symbol" | "created_at" | "updated_at">>): Promise<StrategyWave> {
+  return (await apiClient.put<StrategyWave>(`/admin/strategies/waves/${id}`, p)).data;
+}
+export async function deleteStrategyWave(id: number): Promise<void> {
+  await apiClient.delete(`/admin/strategies/waves/${id}`);
+}
+export async function listWaveBacktests(waveId: number): Promise<StrategyWaveBacktest[]> {
+  return (await apiClient.get<StrategyWaveBacktest[]>(`/admin/strategies/waves/${waveId}/backtest`)).data;
+}
+export async function addWaveBacktest(waveId: number, p: Omit<StrategyWaveBacktest, "id" | "wave_id" | "created_at">): Promise<StrategyWaveBacktest> {
+  return (await apiClient.post<StrategyWaveBacktest>(`/admin/strategies/waves/${waveId}/backtest`, p)).data;
+}
+export async function deleteWaveBacktest(btId: number): Promise<void> {
+  await apiClient.delete(`/admin/strategies/waves/backtest/${btId}`);
+}
+
+export async function listStrategyPositions(): Promise<StrategyPosition[]> {
+  return (await apiClient.get<StrategyPosition[]>("/admin/strategies/positions")).data;
+}
+export async function createStrategyPosition(p: Omit<StrategyPosition, "id" | "created_at" | "updated_at" | "strong_buy_price" | "buy_price" | "watch_price" | "sell_1_price" | "sell_2_price" | "sell_3_price">): Promise<StrategyPosition> {
+  return (await apiClient.post<StrategyPosition>("/admin/strategies/positions", p)).data;
+}
+export async function updateStrategyPosition(id: number, p: Partial<Omit<StrategyPosition, "id" | "asset_id" | "asset_symbol" | "created_at" | "updated_at" | "strong_buy_price" | "buy_price" | "watch_price" | "sell_1_price" | "sell_2_price" | "sell_3_price">>): Promise<StrategyPosition> {
+  return (await apiClient.put<StrategyPosition>(`/admin/strategies/positions/${id}`, p)).data;
+}
+export async function deleteStrategyPosition(id: number): Promise<void> {
+  await apiClient.delete(`/admin/strategies/positions/${id}`);
+}
+export async function listPositionValidations(posId: number): Promise<StrategyPositionValidation[]> {
+  return (await apiClient.get<StrategyPositionValidation[]>(`/admin/strategies/positions/${posId}/validations`)).data;
+}
+export async function addPositionValidation(posId: number, p: Omit<StrategyPositionValidation, "id" | "position_id" | "created_at">): Promise<StrategyPositionValidation> {
+  return (await apiClient.post<StrategyPositionValidation>(`/admin/strategies/positions/${posId}/validations`, p)).data;
+}
+export async function deletePositionValidation(valId: number): Promise<void> {
+  await apiClient.delete(`/admin/strategies/positions/validations/${valId}`);
+}
+
+// ── Model Validation Records ──────────────────────────────────────────────────
+export type ModelValidationRecord = {
+  id: number;
+  model_id: number;
+  validation_indicator_id: number | null;
+  validation_indicator_name: string | null;
+  model_score: number | null;
+  validation_asset: string | null;
+  asset_value: number | null;
+  price_change_pct: number | null;
+  fit_rate: number | null;
+  record_date: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export async function listModelValidationRecords(modelId: number): Promise<ModelValidationRecord[]> {
+  return (await apiClient.get<ModelValidationRecord[]>(`/admin/analysis-models/${modelId}/validation-records`)).data;
+}
+export async function createModelValidationRecord(
+  modelId: number,
+  p: Omit<ModelValidationRecord, "id" | "model_id" | "created_at">
+): Promise<ModelValidationRecord> {
+  return (await apiClient.post<ModelValidationRecord>(`/admin/analysis-models/${modelId}/validation-records`, p)).data;
+}
+export async function deleteModelValidationRecord(recordId: number): Promise<void> {
+  await apiClient.delete(`/admin/analysis-models/validation-records/${recordId}`);
 }

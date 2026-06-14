@@ -525,6 +525,31 @@ def del_score_formula(
     delete_score_formula(db, sf_id)
 
 
+@router.get("/score-formulas/{sf_id}/associated-modules")
+def get_formula_associated_modules(
+    sf_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    from app.models.market_config import MarketConfig
+    from app.models.industry import Industry
+    from app.models.asset import Asset
+
+    markets = db.query(MarketConfig).filter(MarketConfig.module_validation_formula_id == sf_id).all()
+    industries = db.query(Industry).filter(Industry.module_validation_formula_id == sf_id).all()
+    swing_assets = db.query(Asset).filter(Asset.swing_validation_formula_id == sf_id).all()
+    pos_assets = db.query(Asset).filter(Asset.position_validation_formula_id == sf_id).all()
+
+    return {
+        "markets": [{"id": m.id, "name": m.name, "code": m.code} for m in markets],
+        "industries": [{"id": i.id, "name": i.industry_name} for i in industries],
+        "assets": (
+            [{"id": a.id, "name": a.name, "symbol": a.symbol, "section": "波段"} for a in swing_assets]
+            + [{"id": a.id, "name": a.name, "symbol": a.symbol, "section": "檔位"} for a in pos_assets]
+        ),
+    }
+
+
 # ── Asset Type Configs ────────────────────────────────────────────────────────
 
 @router.get("/asset-type-configs", response_model=list[AssetTypeConfigResponse])
@@ -906,6 +931,71 @@ def delete_analysis_model(
     m = db.query(AnalysisModel).filter(AnalysisModel.id == model_id).first()
     if m:
         db.delete(m); db.commit()
+
+
+# ─── Model Validation Records ─────────────────────────────────────────────────
+
+from app.models.model_validation_record import ModelValidationRecord
+
+
+class ModelValidationRecordCreate(BaseModel):
+    validation_indicator_id: Optional[int] = None
+    validation_indicator_name: Optional[str] = None
+    model_score: Optional[float] = None
+    validation_asset: Optional[str] = None
+    asset_value: Optional[float] = None
+    price_change_pct: Optional[float] = None
+    fit_rate: Optional[float] = None
+    record_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _mvr_dict(r: ModelValidationRecord) -> dict:
+    return {
+        "id": r.id, "model_id": r.model_id,
+        "validation_indicator_id": r.validation_indicator_id,
+        "validation_indicator_name": r.validation_indicator_name,
+        "model_score": r.model_score, "validation_asset": r.validation_asset,
+        "asset_value": r.asset_value, "price_change_pct": r.price_change_pct,
+        "fit_rate": r.fit_rate,
+        "record_date": r.record_date, "notes": r.notes,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+@router.get("/analysis-models/{model_id}/validation-records")
+def list_model_validation_records(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    rows = db.query(ModelValidationRecord).filter(
+        ModelValidationRecord.model_id == model_id
+    ).order_by(ModelValidationRecord.record_date.desc()).all()
+    return [_mvr_dict(r) for r in rows]
+
+
+@router.post("/analysis-models/{model_id}/validation-records", status_code=status.HTTP_201_CREATED)
+def create_model_validation_record(
+    model_id: int,
+    body: ModelValidationRecordCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    r = ModelValidationRecord(model_id=model_id, **body.model_dump())
+    db.add(r); db.commit(); db.refresh(r)
+    return _mvr_dict(r)
+
+
+@router.delete("/analysis-models/validation-records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_model_validation_record(
+    record_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_auth),
+):
+    r = db.query(ModelValidationRecord).filter(ModelValidationRecord.id == record_id).first()
+    if r:
+        db.delete(r); db.commit()
 
 
 # ─── Crawler ──────────────────────────────────────────────────────────────────

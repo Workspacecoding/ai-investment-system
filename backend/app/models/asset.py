@@ -49,6 +49,8 @@ class Asset(Base):
     module_result_indicator_ids = Column(JSON, nullable=True)
     module_formula_expr = Column(Text, nullable=True)
     module_validation_conditions = Column(Text, nullable=True)
+    swing_validation_formula_id = Column(BigInteger, nullable=True)
+    position_validation_formula_id = Column(BigInteger, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(
         DateTime,

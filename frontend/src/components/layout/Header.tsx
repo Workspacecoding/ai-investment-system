@@ -31,14 +31,14 @@ function AlphaLensLogo() {
 }
 
 const navLinks = [
-  { href: "/dashboard", label: "儀表板", exact: true },
-  { href: "/dashboard/watchlist", label: "自選股", exact: false },
-  { href: "/dashboard/swing-center", label: "交易計畫", exact: false },
-  { href: "/dashboard/portfolio", label: "投資組合", exact: false },
-  { href: "/dashboard/goal-planner", label: "目標", exact: false },
-  { href: "/dashboard/reports", label: "報表", exact: false },
-  { href: "/dashboard/notifications", label: "通知", exact: false, icon: "bell" },
-  { href: "/dashboard/admin", label: "控制台", exact: false, icon: "cog" },
+  { href: "/dashboard",               label: "儀表板",  exact: true },
+  { href: "/dashboard/market",        label: "市場中心", exact: false },
+  { href: "/dashboard/strategy",      label: "策略中心", exact: false },
+  { href: "/dashboard/trading",       label: "交易中心", exact: false },
+  { href: "/dashboard/assets",        label: "資產中心", exact: false },
+  { href: "/dashboard/analysis",      label: "分析中心", exact: false },
+  { href: "/dashboard/notifications", label: "通知中心", exact: false, icon: "bell" },
+  { href: "/dashboard/admin",         label: "控制台",  exact: false, icon: "cog" },
 ];
 
 function BellIcon() {
